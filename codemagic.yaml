@@ -1,0 +1,78 @@
+workflows:
+  ios-simulator:
+    name: aydinlatmamekani - iOS simulator for browser testing
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      flutter: 3.38.9
+      xcode: 26.0
+      cocoapods: 1.16.2
+      vars:
+        ONESIGNAL_DISABLE_LOCATION: "true"
+    scripts:
+      - name: Select CocoaPods integration
+        script: |
+          flutter config --no-enable-swift-package-manager
+      - name: Resolve Flutter dependencies
+        script: |
+          flutter pub get
+      - name: Install iOS dependencies
+        script: |
+          cd ios
+          pod install
+      - name: Build iOS simulator app
+        script: |
+          mkdir -p artifacts
+          set -o pipefail
+          flutter build ios --simulator --debug --no-codesign 2>&1 | tee artifacts/ios-simulator-build.log
+      - name: Package simulator app for Appetize
+        script: |
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphonesimulator/Runner.app artifacts/aydinlatmamekani-ios-simulator.zip
+    artifacts:
+      - artifacts/aydinlatmamekani-ios-simulator.zip
+      - artifacts/ios-simulator-build.log
+      - pubspec.lock
+      - ios/Podfile.lock
+
+  ios-unsigned:
+    name: aydinlatmamekani - iOS unsigned validation
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      flutter: 3.38.9
+      xcode: 26.0
+      cocoapods: 1.16.2
+      vars:
+        ONESIGNAL_DISABLE_LOCATION: "true"
+    scripts:
+      - name: Select CocoaPods integration
+        script: |
+          flutter config --no-enable-swift-package-manager
+      - name: Resolve Flutter dependencies
+        script: |
+          flutter pub get
+      - name: Analyze Dart code
+        script: |
+          flutter analyze --fatal-infos
+      - name: Test routing and theme resolution
+        script: |
+          flutter test
+      - name: Install iOS dependencies
+        script: |
+          cd ios
+          pod install
+      - name: Build iOS without signing
+        script: |
+          mkdir -p artifacts
+          set -o pipefail
+          flutter build ios --release --no-codesign 2>&1 | tee artifacts/ios-build.log
+      - name: Package unsigned app
+        script: |
+          mkdir -p artifacts
+          ditto -c -k --sequesterRsrc --keepParent build/ios/iphoneos/Runner.app artifacts/aydinlatmamekani-unsigned-app.zip
+    artifacts:
+      - artifacts/aydinlatmamekani-unsigned-app.zip
+      - artifacts/ios-build.log
+      - /tmp/xcodebuild_logs/*.log
+      - pubspec.lock
+      - ios/Podfile.lock
