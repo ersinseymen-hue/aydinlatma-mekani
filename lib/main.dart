@@ -223,6 +223,153 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
+  static const String _smartSearchPopupIOSScrollbarBridge = r'''
+(function () {
+  'use strict';
+
+  // Require both the shipped iOS version and CSS support. Older WebKit builds
+  // may parse a property before implementing its rendering behavior.
+  var os = navigator.userAgent.match(/\bOS (\d+)[_.](\d+)/);
+  if (!os || Number(os[1]) < 18 ||
+      (Number(os[1]) === 18 && Number(os[2]) < 2) ||
+      !window.CSS || !CSS.supports('scrollbar-width', 'none') ||
+      window.__AM_IOS_POPUP_SCROLLBAR__) {
+    return;
+  }
+  window.__AM_IOS_POPUP_SCROLLBAR__ = true;
+
+  var popup = null;
+  var track = null;
+  var thumb = null;
+  var resizeObserver = null;
+  var pending = false;
+  var previousWidth = '';
+  var previousPriority = '';
+
+  function schedule() {
+    if (pending) { return; }
+    pending = true;
+    requestAnimationFrame(function () {
+      pending = false;
+      update();
+    });
+  }
+
+  function bind(next) {
+    if (popup === next) { return; }
+    if (popup) {
+      popup.removeEventListener('scroll', schedule);
+      if (popup.style.getPropertyValue('scrollbar-width') === 'none') {
+        if (previousWidth) {
+          popup.style.setProperty('scrollbar-width', previousWidth, previousPriority);
+        } else {
+          popup.style.removeProperty('scrollbar-width');
+        }
+      }
+    }
+    if (resizeObserver) { resizeObserver.disconnect(); }
+    popup = next;
+    if (!popup) { return; }
+    previousWidth = popup.style.getPropertyValue('scrollbar-width');
+    previousPriority = popup.style.getPropertyPriority('scrollbar-width');
+    popup.style.setProperty('scrollbar-width', 'none', 'important');
+    popup.addEventListener('scroll', schedule, { passive: true });
+    if (window.ResizeObserver) {
+      resizeObserver = new ResizeObserver(schedule);
+      resizeObserver.observe(popup);
+      var grid = popup.querySelector('.am-smart-search__grid');
+      if (grid) { resizeObserver.observe(grid); }
+    }
+  }
+
+  function update() {
+    bind(document.getElementById('am-smart-search-popup'));
+    if (!track || !popup) {
+      if (track) { track.style.display = 'none'; }
+      return;
+    }
+    var style = getComputedStyle(popup);
+    var box = popup.getBoundingClientRect();
+    var maxScroll = popup.scrollHeight - popup.clientHeight;
+    var visible = box.width > 0 && box.height > 0 &&
+      box.bottom > 0 && box.top < window.innerHeight &&
+      style.display !== 'none' && style.visibility !== 'hidden' &&
+      (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+      maxScroll > 1 && style.getPropertyValue('scrollbar-width') === 'none';
+    for (var parent = popup; visible && parent; parent = parent.parentElement) {
+      var ancestorStyle = getComputedStyle(parent);
+      if (ancestorStyle.display === 'none' ||
+          ancestorStyle.visibility === 'hidden' || Number(ancestorStyle.opacity) === 0) {
+        visible = false;
+      }
+    }
+    if (!visible) {
+      track.style.display = 'none';
+      return;
+    }
+
+    // Overlay the existing scrolling element without resizing it or adding
+    // another scroll container. Pointer events continue to reach the popup.
+    var top = Math.max(0, box.top) + 8;
+    var bottom = Math.min(window.innerHeight, box.bottom) - 8;
+    var height = bottom - top;
+    if (height <= 0) { track.style.display = 'none'; return; }
+    var size = Math.min(height, Math.max(24,
+      height * popup.clientHeight / popup.scrollHeight));
+    var progress = Math.max(0, Math.min(1, popup.scrollTop / maxScroll));
+    var color = style.getPropertyValue('--am-blue').trim() || '#00A2E8';
+    track.style.top = top + 'px';
+    track.style.left = (box.right - 8) + 'px';
+    track.style.height = height + 'px';
+    track.style.backgroundColor = 'color-mix(in srgb, ' + color + ' 18%, transparent)';
+    thumb.style.backgroundColor = color;
+    thumb.style.height = size + 'px';
+    thumb.style.transform = 'translateY(' + ((height - size) * progress) + 'px)';
+    track.style.display = 'block';
+  }
+
+  function start() {
+    if (track || !document.body) { return; }
+    track = document.createElement('div');
+    track.id = 'am-ios-popup-scrollbar';
+    track.setAttribute('aria-hidden', 'true');
+    track.style.cssText = 'position:fixed;display:none;width:5px;pointer-events:none;' +
+      'z-index:2147483646;border-radius:3px;overflow:hidden;';
+    thumb = document.createElement('div');
+    thumb.style.cssText = 'position:absolute;top:0;left:0;width:100%;' +
+      'border-radius:3px;pointer-events:none;';
+    track.appendChild(thumb);
+    document.body.appendChild(track);
+    new MutationObserver(function (records) {
+      if (records.some(function (record) {
+        return record.target !== track && record.target !== thumb;
+      })) { schedule(); }
+    }).observe(document.documentElement, {
+      childList: true, subtree: true, attributes: true,
+      attributeFilter: ['class', 'style', 'hidden']
+    });
+    document.addEventListener('scroll', schedule, true);
+    document.addEventListener('load', schedule, true);
+    document.addEventListener('transitionend', schedule, true);
+    document.addEventListener('animationend', schedule, true);
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
+    window.addEventListener('pageshow', schedule);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', schedule);
+      window.visualViewport.addEventListener('scroll', schedule);
+    }
+    update();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start, { once: true });
+  } else {
+    start();
+  }
+})();
+''';
+
   static const String _nativeVoiceRecognitionBridge = r'''
 (function () {
   'use strict';
@@ -382,6 +529,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   bool _retryInProgress = false;
   bool _currentLoadFailed = false;
   bool _googleLoginNoticeOpen = false;
+  bool _backNavigationInProgress = false;
   int _recoveryGeneration = 0;
   int _pageLoadGeneration = 0;
   int _finalizingLoadGeneration = -1;
@@ -2703,6 +2851,18 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<bool> _handleBackButton() async {
+    if (_backNavigationInProgress || (Platform.isIOS && _showSplash)) {
+      return false;
+    }
+    _backNavigationInProgress = true;
+    try {
+      return await _navigateBackOrConfirmExit();
+    } finally {
+      _backNavigationInProgress = false;
+    }
+  }
+
+  Future<bool> _navigateBackOrConfirmExit() async {
     final InAppWebViewController? controller = _webViewController;
 
     if (controller != null) {
@@ -2731,11 +2891,6 @@ class _WebViewScreenState extends State<WebViewScreen>
       return false;
     }
 
-    // iOS users leave the app with the Home gesture; do not offer a dead exit action.
-    if (Platform.isIOS) {
-      return false;
-    }
-
     final bool? shouldExit = await showDialog<bool>(
       context: context,
       barrierDismissible: true,
@@ -2748,6 +2903,32 @@ class _WebViewScreenState extends State<WebViewScreen>
 
     if (shouldExit == true && Platform.isAndroid) {
       SystemNavigator.pop();
+    } else if (shouldExit == true && Platform.isIOS && mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (BuildContext dialogContext) => AlertDialog(
+          backgroundColor: _isDarkMode ? appDarkCard : Colors.white,
+          title: Text(
+            'Ana ekrana dönün',
+            style: TextStyle(
+              color: _isDarkMode ? appDarkTextPrimary : Colors.black87,
+            ),
+          ),
+          content: Text(
+            'Uygulamadan ayrılmak için ekranın alt kenarından yukarı kaydırın. '
+            'Ana ekran düğmeli iPhone kullanıyorsanız Ana Ekran düğmesine basın.',
+            style: TextStyle(
+              color: _isDarkMode ? appDarkTextPrimary : Colors.black87,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Tamam', style: TextStyle(color: appPrimary)),
+            ),
+          ],
+        ),
+      );
     }
 
     return false;
@@ -2788,9 +2969,35 @@ class _WebViewScreenState extends State<WebViewScreen>
         },
         child: Scaffold(
           backgroundColor: nativeBackground,
+          bottomNavigationBar: Platform.isIOS && !_showSplash
+              ? Material(
+                  color: nativeBackground,
+                  child: SafeArea(
+                    top: false,
+                    child: SizedBox(
+                      height: 48,
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: TextButton.icon(
+                          onPressed: () => unawaited(_handleBackButton()),
+                          style: TextButton.styleFrom(
+                            foregroundColor: appPrimary,
+                            minimumSize: const Size(88, 48),
+                          ),
+                          icon: const Icon(
+                            Icons.arrow_back_ios_new_rounded,
+                            size: 20,
+                          ),
+                          label: const Text('Geri'),
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              : null,
           body: SafeArea(
             top: false,
-            bottom: Platform.isIOS,
+            bottom: Platform.isIOS && _showSplash,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -2822,6 +3029,12 @@ class _WebViewScreenState extends State<WebViewScreen>
                                 initialSettings: _webViewSettings,
                                 initialUserScripts:
                                     UnmodifiableListView<UserScript>([
+                                  if (Platform.isIOS)
+                                    UserScript(
+                                      source: _smartSearchPopupIOSScrollbarBridge,
+                                      injectionTime: UserScriptInjectionTime
+                                          .AT_DOCUMENT_START,
+                                    ),
                                   if (Platform.isIOS)
                                     UserScript(
                                       source: _smartSearchPopupIOSLayoutBridge,
