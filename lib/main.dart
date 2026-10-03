@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -530,6 +531,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   bool _currentLoadFailed = false;
   bool _googleLoginNoticeOpen = false;
   bool _backNavigationInProgress = false;
+  bool _simulatorTestsAvailable = false;
+  bool _simulatorNoInternetPreview = false;
   int _recoveryGeneration = 0;
   int _pageLoadGeneration = 0;
   int _finalizingLoadGeneration = -1;
@@ -569,6 +572,42 @@ class _WebViewScreenState extends State<WebViewScreen>
     javaScriptCanOpenWindowsAutomatically: true,
     sharedCookiesEnabled: true,
   );
+
+  Future<void> _configureSimulatorTests() async {
+    if (!kDebugMode || !Platform.isIOS) {
+      return;
+    }
+    try {
+      final bool available = await _browserChannel
+              .invokeMethod<bool>('isSimulatorTestEnvironment') ??
+          false;
+      if (mounted && available) {
+        setState(() => _simulatorTestsAvailable = true);
+      }
+    } catch (_) {
+      // Missing/failed native confirmation always leaves test controls hidden.
+    }
+  }
+
+  void _showSimulatorNoInternet() {
+    if (!kDebugMode || !Platform.isIOS || !_simulatorTestsAvailable ||
+        _showSplash || !mounted) {
+      return;
+    }
+    _recoveryGeneration++;
+    _simulatorNoInternetPreview = true;
+    _showErrorScreen(AppErrorScreen.noInternet);
+  }
+
+  Future<void> _endSimulatorNoInternet() async {
+    if (!kDebugMode || !Platform.isIOS || !_simulatorTestsAvailable ||
+        !_simulatorNoInternetPreview || !mounted) {
+      return;
+    }
+    setState(() => _simulatorNoInternetPreview = false);
+    _clearErrorScreen();
+    await _retryCurrentPage();
+  }
 
   Future<bool> _requestMicrophonePermission() async {
     if (!Platform.isAndroid && !Platform.isIOS) {
@@ -2285,6 +2324,9 @@ class _WebViewScreenState extends State<WebViewScreen>
     _isDarkMode = widget.initialDarkMode;
     _splashDarkMode = widget.initialDarkMode;
     WidgetsBinding.instance.addObserver(this);
+    if (kDebugMode && Platform.isIOS) {
+      unawaited(_configureSimulatorTests());
+    }
 
     _configureOneSignalClickHandlers();
     _oneSignalInitializationFuture = _initializeOneSignal();
@@ -2337,6 +2379,9 @@ class _WebViewScreenState extends State<WebViewScreen>
   Future<void> _handleConnectivityChanged(
     List<ConnectivityResult> result,
   ) async {
+    if (kDebugMode && _simulatorNoInternetPreview) {
+      return;
+    }
     if (!mounted) {
       return;
     }
@@ -2354,6 +2399,9 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   void _showErrorScreen(AppErrorScreen errorScreen) {
+    if (kDebugMode && _simulatorNoInternetPreview) {
+      errorScreen = AppErrorScreen.noInternet;
+    }
     _finishTimer?.cancel();
 
     if (!mounted) {
@@ -2373,6 +2421,9 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   void _clearErrorScreen() {
+    if (kDebugMode && _simulatorNoInternetPreview) {
+      return;
+    }
     if (!mounted || _errorScreen == AppErrorScreen.none) {
       return;
     }
@@ -2474,6 +2525,9 @@ class _WebViewScreenState extends State<WebViewScreen>
   Future<void> _attemptRecovery({
     required bool automatic,
   }) async {
+    if (kDebugMode && _simulatorNoInternetPreview) {
+      return;
+    }
     final int generation = ++_recoveryGeneration;
 
     if (mounted) {
@@ -2565,6 +2619,10 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<void> _retryCurrentPage() async {
+    if (kDebugMode && _simulatorNoInternetPreview) {
+      await _endSimulatorNoInternet();
+      return;
+    }
     if (_retryInProgress) {
       return;
     }
@@ -2885,6 +2943,11 @@ class _WebViewScreenState extends State<WebViewScreen>
       return false;
     }
 
+    // iOS users leave with the system Home gesture, without app confirmation.
+    if (Platform.isIOS) {
+      return false;
+    }
+
     await _syncThemeToWebView(controller);
 
     if (!mounted) {
@@ -2903,32 +2966,6 @@ class _WebViewScreenState extends State<WebViewScreen>
 
     if (shouldExit == true && Platform.isAndroid) {
       SystemNavigator.pop();
-    } else if (shouldExit == true && Platform.isIOS && mounted) {
-      await showDialog<void>(
-        context: context,
-        builder: (BuildContext dialogContext) => AlertDialog(
-          backgroundColor: _isDarkMode ? appDarkCard : Colors.white,
-          title: Text(
-            'Ana ekrana dönün',
-            style: TextStyle(
-              color: _isDarkMode ? appDarkTextPrimary : Colors.black87,
-            ),
-          ),
-          content: Text(
-            'Uygulamadan ayrılmak için ekranın alt kenarından yukarı kaydırın. '
-            'Ana ekran düğmeli iPhone kullanıyorsanız Ana Ekran düğmesine basın.',
-            style: TextStyle(
-              color: _isDarkMode ? appDarkTextPrimary : Colors.black87,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Tamam', style: TextStyle(color: appPrimary)),
-            ),
-          ],
-        ),
-      );
     }
 
     return false;
@@ -2969,35 +3006,9 @@ class _WebViewScreenState extends State<WebViewScreen>
         },
         child: Scaffold(
           backgroundColor: nativeBackground,
-          bottomNavigationBar: Platform.isIOS && !_showSplash
-              ? Material(
-                  color: nativeBackground,
-                  child: SafeArea(
-                    top: false,
-                    child: SizedBox(
-                      height: 48,
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: TextButton.icon(
-                          onPressed: () => unawaited(_handleBackButton()),
-                          style: TextButton.styleFrom(
-                            foregroundColor: appPrimary,
-                            minimumSize: const Size(88, 48),
-                          ),
-                          icon: const Icon(
-                            Icons.arrow_back_ios_new_rounded,
-                            size: 20,
-                          ),
-                          label: const Text('Geri'),
-                        ),
-                      ),
-                    ),
-                  ),
-                )
-              : null,
           body: SafeArea(
             top: false,
-            bottom: Platform.isIOS && _showSplash,
+            bottom: Platform.isIOS,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -3472,6 +3483,26 @@ class _WebViewScreenState extends State<WebViewScreen>
                     ),
                   ),
                 ),
+                if (kDebugMode && Platform.isIOS &&
+                    _simulatorTestsAvailable && !_showSplash)
+                  Positioned(
+                    top: fixedPrimaryAreaHeight + 8,
+                    right: 12,
+                    child: ElevatedButton.icon(
+                      onPressed: _simulatorNoInternetPreview
+                          ? () => unawaited(_endSimulatorNoInternet())
+                          : _showSimulatorNoInternet,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _isDarkMode ? appDarkCard : Colors.white,
+                        foregroundColor: appPrimary,
+                        elevation: 2,
+                      ),
+                      icon: const Icon(Icons.science_outlined, size: 18),
+                      label: Text(_simulatorNoInternetPreview
+                          ? 'Testi bitir'
+                          : 'No-internet testi'),
+                    ),
+                  ),
                 if (_showSplash)
                   Positioned.fill(
                     child: Container(
@@ -3545,9 +3576,10 @@ class AppConnectionErrorScreen extends StatelessWidget {
             BuildContext context,
             BoxConstraints constraints,
           ) {
+            final double maxImageHeight = constraints.maxHeight * 0.78;
             final double imageHeight = (constraints.maxHeight - 112).clamp(
-              220.0,
-              constraints.maxHeight * 0.78,
+              maxImageHeight < 220.0 ? maxImageHeight : 220.0,
+              maxImageHeight,
             );
 
             return Padding(
@@ -3572,7 +3604,7 @@ class AppConnectionErrorScreen extends StatelessWidget {
                     height: 52,
                     child: OutlinedButton(
                       style: OutlinedButton.styleFrom(
-                        backgroundColor: appPrimary,
+                        foregroundColor: appPrimary,
                         side: const BorderSide(
                           color: appPrimary,
                           width: 2,
