@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Aydinlatmamekani</string>
+	<string>Aydınlatma Mekânı</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -22,7 +22,6 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
-
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -34,7 +33,6 @@
 			</array>
 		</dict>
 	</array>
-
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -58,5 +56,31 @@
 	<false/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Ürünleri sesli aramak için mikrofonunuzu kullanıyoruz.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Söylediğiniz ürün adını arama metnine dönüştürmek için konuşma tanımayı kullanıyoruz.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Ürün arama ve formlarda fotoğraf çekip yüklemek için kameranızı kullanıyoruz.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ürün arama ve formlara seçtiğiniz fotoğrafı eklemek için fotoğraf arşivinizi kullanıyoruz.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>OneSignal_suppress_launch_urls</key>
+	<true/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>whatsapp</string>
+		<string>comgooglemaps</string>
+		<string>maps</string>
+		<string>tel</string>
+		<string>mailto</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
