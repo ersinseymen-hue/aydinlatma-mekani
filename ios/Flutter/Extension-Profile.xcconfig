@@ -1,2 +1,0 @@
-#include? "Pods/Target Support Files/Pods-OneSignalNotificationServiceExtension/Pods-OneSignalNotificationServiceExtension.profile.xcconfig"
-#include "Generated.xcconfig"
