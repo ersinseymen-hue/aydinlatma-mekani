@@ -40,6 +40,12 @@ import Speech
   private func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     let args: [String: Any] = (call.arguments as? [String: Any]) ?? [:]
     switch call.method {
+    case "isSimulatorTestEnvironment":
+      #if targetEnvironment(simulator)
+      result(true)
+      #else
+      result(false)
+      #endif
     case "getThemePreference": result(themePreference)
     case "getSystemDarkMode": result(systemDarkMode)
     case "getStartupTheme": result(resolvedTheme)
