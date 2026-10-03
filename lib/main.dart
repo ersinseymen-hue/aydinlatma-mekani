@@ -189,6 +189,40 @@ class _WebViewScreenState extends State<WebViewScreen>
     with WidgetsBindingObserver {
   static const MethodChannel _browserChannel = appNativeChannel;
 
+  // Keep the mobile popup's existing grid, spacing and minimum heights.
+  // Avoid a zero flex basis for its grid buttons in an auto-height column
+  // on iOS; the two cards should derive their height from their contents.
+  static const String _smartSearchPopupIOSLayoutBridge = r'''
+(function () {
+  'use strict';
+
+  function installStyle() {
+    if (document.getElementById('am-ios-smart-search-layout')) {
+      return;
+    }
+
+    var target = document.head || document.documentElement;
+    if (!target) {
+      return;
+    }
+
+    var style = document.createElement('style');
+    style.id = 'am-ios-smart-search-layout';
+    style.textContent =
+      '@media (max-width:1023px){' +
+      '#am-smart-search-popup .am-smart-search__option{' +
+      'flex:0 0 auto!important;' +
+      '-webkit-appearance:none;' +
+      'appearance:none;' +
+      '}}';
+    target.appendChild(style);
+  }
+
+  installStyle();
+  document.addEventListener('DOMContentLoaded', installStyle, { once: true });
+})();
+''';
+
   static const String _nativeVoiceRecognitionBridge = r'''
 (function () {
   'use strict';
@@ -2788,6 +2822,12 @@ class _WebViewScreenState extends State<WebViewScreen>
                                 initialSettings: _webViewSettings,
                                 initialUserScripts:
                                     UnmodifiableListView<UserScript>([
+                                  if (Platform.isIOS)
+                                    UserScript(
+                                      source: _smartSearchPopupIOSLayoutBridge,
+                                      injectionTime: UserScriptInjectionTime
+                                          .AT_DOCUMENT_START,
+                                    ),
                                   UserScript(
                                     source: _nativeThemeBridge,
                                     injectionTime: UserScriptInjectionTime
