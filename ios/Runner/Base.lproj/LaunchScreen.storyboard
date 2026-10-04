@@ -22,8 +22,8 @@
                         <constraints>
                             <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="Ze5-6b-2t3" secondAttribute="centerX" id="logo-center-x" />
                             <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerY" secondItem="Ze5-6b-2t3" secondAttribute="centerY" id="logo-center-y" />
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="width" constant="420" priority="750" id="logo-width" />
-                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="height" constant="168" priority="750" id="logo-height" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="width" constant="420" priority="999" id="logo-width" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="height" constant="168" priority="999" id="logo-height" />
                             <constraint firstItem="YRO-k0-Ey4" firstAttribute="width" relation="lessThanOrEqual" secondItem="Ze5-6b-2t3" secondAttribute="width" constant="-48" id="logo-max-width" />
                             <constraint firstItem="YRO-k0-Ey4" firstAttribute="height" relation="lessThanOrEqual" secondItem="Ze5-6b-2t3" secondAttribute="height" constant="-48" id="logo-max-height" />
                         </constraints>
