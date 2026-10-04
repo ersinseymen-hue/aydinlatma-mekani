@@ -23,14 +23,14 @@ const Color appDarkCard = Color(0xFF191E25);
 const Color appDarkSurface = Color(0xFF20262F);
 const Color appDarkBorder = Color(0xFF1B384A);
 const Color appDarkTextPrimary = Color(0xFFDDF2FC);
-const MethodChannel appNativeChannel =
-    MethodChannel('com.lightstore.aydinlatmamekani/browser');
+const MethodChannel appNativeChannel = MethodChannel(
+  'com.lightstore.aydinlatmamekani/browser',
+);
 
-enum AppErrorScreen {
-  none,
-  noInternet,
-  serverError,
-}
+int _nativeIOSMajorVersion = 0;
+bool? _nativeSimulatorEnvironment;
+
+enum AppErrorScreen { none, noInternet, serverError }
 
 class _StartupThemeState {
   const _StartupThemeState({
@@ -69,6 +69,8 @@ Future<_StartupThemeState> _resolveStartupThemeBeforeRunApp() async {
         .timeout(const Duration(milliseconds: 1500));
 
     if (raw is Map) {
+      _nativeIOSMajorVersion = (raw['iosMajorVersion'] as num?)?.toInt() ?? 0;
+      _nativeSimulatorEnvironment = raw['isSimulator'] as bool?;
       final String preference = normalizeThemePreference(
         raw['preference']?.toString(),
       );
@@ -91,7 +93,7 @@ Future<_StartupThemeState> _resolveStartupThemeBeforeRunApp() async {
 _StartupThemeState _readStartupThemeFromInitialRoute() {
   final bool fallbackDarkMode =
       WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-          Brightness.dark;
+      Brightness.dark;
 
   try {
     final String route =
@@ -115,10 +117,7 @@ _StartupThemeState _readStartupThemeFromInitialRoute() {
     debugPrint('Başlangıç tema rotası okunamadı: $error');
   }
 
-  return _StartupThemeState(
-    preference: 'system',
-    isDarkMode: fallbackDarkMode,
-  );
+  return _StartupThemeState(preference: 'system', isDarkMode: fallbackDarkMode);
 }
 
 Future<void> _requestOneSignalPushPermission() async {
@@ -293,11 +292,50 @@ class _WebViewScreenState extends State<WebViewScreen>
     style.id = 'am-ios-smart-popup-cookie-guard';
     // Preserve the cookie library's own visibility and pointer-event rules,
     // including cc-invisible after the user's dismissal.
-    style.textContent = '.cc-window{z-index:2147483647!important;}';
+    style.textContent = '.cc-window{z-index:2147483647!important;}' +
+      '.fancybox-container[data-am-ios-smart-popup-inactive="true"]{' +
+      'pointer-events:none!important;}';
     (document.head || html).appendChild(style);
   }
+  // A hidden smart popup must not leave its full-screen host intercepting taps.
+  // Scope this to its own Fancybox host; unrelated dialogs are untouched.
+  function syncHiddenPopupHost() {
+    var root = document.getElementById('am-smart-search-popup');
+    var idea = root && root.closest('#idea-popup');
+    var layer = idea && idea.closest('.fancybox-container');
+    document.querySelectorAll('[data-am-ios-smart-popup-inactive]').forEach(function (old) {
+      if (old !== layer) old.removeAttribute('data-am-ios-smart-popup-inactive');
+    });
+    if (!layer) return;
+    if (visiblePopup(root, layer)) {
+      layer.removeAttribute('data-am-ios-smart-popup-inactive');
+    } else {
+      layer.setAttribute('data-am-ios-smart-popup-inactive', 'true');
+    }
+  }
+  var hostUpdatePending = false;
+  function scheduleHostUpdate() {
+    if (hostUpdatePending) return;
+    hostUpdatePending = true;
+    (window.requestAnimationFrame || function (callback) { return setTimeout(callback, 0); })(function () {
+      hostUpdatePending = false;
+      syncHiddenPopupHost();
+    });
+  }
   installStyle();
-  document.addEventListener('DOMContentLoaded', installStyle, { once: true });
+  syncHiddenPopupHost();
+  if (document.documentElement) {
+    new MutationObserver(scheduleHostUpdate).observe(document.documentElement, {
+      childList: true, subtree: true, attributes: true,
+      attributeFilter: ['class', 'style', 'hidden']
+    });
+  }
+  document.addEventListener('DOMContentLoaded', function () {
+    installStyle(); syncHiddenPopupHost();
+  }, { once: true });
+  document.addEventListener('transitionend', scheduleHostUpdate, true);
+  document.addEventListener('animationend', scheduleHostUpdate, true);
+  window.addEventListener('resize', scheduleHostUpdate);
 })();
 ''';
 
@@ -305,13 +343,10 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  // Require both the shipped iOS version and CSS support. Older WebKit builds
-  // may parse a property before implementing its rendering behavior.
+  // WKWebView's user-agent may report an older OS. Prefer native iOS version.
   var os = navigator.userAgent.match(/\bOS (\d+)[_.](\d+)/);
-  if (!os || Number(os[1]) < 18 ||
-      (Number(os[1]) === 18 && Number(os[2]) < 2) ||
-      !window.CSS || !CSS.supports('scrollbar-width', 'none') ||
-      window.__AM_IOS_POPUP_SCROLLBAR__) {
+  var major = Number(window.__AM_NATIVE_IOS_MAJOR__) || (os ? Number(os[1]) : 0);
+  if (major < 18 || window.__AM_IOS_POPUP_SCROLLBAR__) {
     return;
   }
   window.__AM_IOS_POPUP_SCROLLBAR__ = true;
@@ -337,6 +372,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (popup === next) { return; }
     if (popup) {
       popup.removeEventListener('scroll', schedule);
+      popup.removeAttribute('data-am-custom-scrollbar');
       if (popup.style.getPropertyValue('scrollbar-width') === 'none') {
         if (previousWidth) {
           popup.style.setProperty('scrollbar-width', previousWidth, previousPriority);
@@ -350,6 +386,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (!popup) { return; }
     previousWidth = popup.style.getPropertyValue('scrollbar-width');
     previousPriority = popup.style.getPropertyPriority('scrollbar-width');
+    popup.setAttribute('data-am-custom-scrollbar', 'true');
     popup.style.setProperty('scrollbar-width', 'none', 'important');
     popup.addEventListener('scroll', schedule, { passive: true });
     if (window.ResizeObserver) {
@@ -381,7 +418,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       box.bottom > 0 && box.top < window.innerHeight &&
       style.display !== 'none' && style.visibility !== 'hidden' &&
       (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
-      maxScroll > 1 && style.getPropertyValue('scrollbar-width') === 'none';
+      maxScroll > 1;
     for (var parent = popup; visible && parent; parent = parent.parentElement) {
       var ancestorStyle = getComputedStyle(parent);
       if (ancestorStyle.display === 'none' ||
@@ -404,13 +441,6 @@ class _WebViewScreenState extends State<WebViewScreen>
         top = Math.max(top, closeBox.bottom + 6);
       }
     }
-    var hit = document.elementFromPoint &&
-      document.elementFromPoint(box.right - 10, top + 1);
-    if (hit && !popup.contains(hit) &&
-        !(hit.closest && hit.closest('.cc-window'))) {
-      track.style.display = 'none';
-      return;
-    }
     var bottom = Math.min(window.innerHeight, box.bottom) - 12;
     var height = bottom - top;
     if (height <= 0) { track.style.display = 'none'; return; }
@@ -432,6 +462,10 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   function start() {
     if (track || !document.body) { return; }
+    var nativeStyle = document.createElement('style');
+    nativeStyle.textContent = '#am-smart-search-popup[data-am-custom-scrollbar]::-webkit-scrollbar{' +
+      'display:none!important;width:0!important;height:0!important;}';
+    (document.head || document.documentElement).appendChild(nativeStyle);
     track = document.createElement('div');
     track.id = 'am-ios-popup-scrollbar';
     track.setAttribute('aria-hidden', 'true');
@@ -679,8 +713,11 @@ class _WebViewScreenState extends State<WebViewScreen>
       return;
     }
     try {
-      final bool available = await _browserChannel
-              .invokeMethod<bool>('isSimulatorTestEnvironment') ??
+      final bool available =
+          _nativeSimulatorEnvironment ??
+          await _browserChannel.invokeMethod<bool>(
+            'isSimulatorTestEnvironment',
+          ) ??
           false;
       if (mounted && available) {
         setState(() => _simulatorTestsAvailable = true);
@@ -691,8 +728,11 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   void _showSimulatorNoInternet() {
-    if (!kDebugMode || !Platform.isIOS || !_simulatorTestsAvailable ||
-        _showSplash || !mounted) {
+    if (!kDebugMode ||
+        !Platform.isIOS ||
+        !_simulatorTestsAvailable ||
+        _showSplash ||
+        !mounted) {
       return;
     }
     _recoveryGeneration++;
@@ -701,8 +741,11 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<void> _endSimulatorNoInternet() async {
-    if (!kDebugMode || !Platform.isIOS || !_simulatorTestsAvailable ||
-        !_simulatorNoInternetPreview || !mounted) {
+    if (!kDebugMode ||
+        !Platform.isIOS ||
+        !_simulatorTestsAvailable ||
+        !_simulatorNoInternetPreview ||
+        !mounted) {
       return;
     }
     setState(() => _simulatorNoInternetPreview = false);
@@ -734,9 +777,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     try {
       return await _browserChannel.invokeMethod<String>(
         'startVoiceRecognition',
-        <String, dynamic>{
-          'language': language.isEmpty ? 'tr-TR' : language,
-        },
+        <String, dynamic>{'language': language.isEmpty ? 'tr-TR' : language},
       );
     } catch (error) {
       debugPrint('Sesli arama başlatılamadı: $error');
@@ -1120,10 +1161,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     try {
       await _browserChannel.invokeMethod<bool>(
         'setThemePreference',
-        <String, dynamic>{
-          'preference': preference,
-          'explicit': explicitChange,
-        },
+        <String, dynamic>{'preference': preference, 'explicit': explicitChange},
       );
     } catch (error) {
       debugPrint('Tema tercihi kaydedilemedi: $error');
@@ -1136,8 +1174,9 @@ class _WebViewScreenState extends State<WebViewScreen>
     required bool explicitChange,
   }) async {
     final String normalizedPreference = normalizeThemePreference(preference);
-    final String nextPreference =
-        explicitChange ? normalizedPreference : _themePreference;
+    final String nextPreference = explicitChange
+        ? normalizedPreference
+        : _themePreference;
     final bool nextDarkMode = resolvedTheme == 'dark';
 
     if (mounted &&
@@ -1152,16 +1191,11 @@ class _WebViewScreenState extends State<WebViewScreen>
     }
 
     if (explicitChange) {
-      await _persistThemePreference(
-        normalizedPreference,
-        explicitChange: true,
-      );
+      await _persistThemePreference(normalizedPreference, explicitChange: true);
     }
   }
 
-  Future<void> _syncThemeToWebView(
-    InAppWebViewController? controller,
-  ) async {
+  Future<void> _syncThemeToWebView(InAppWebViewController? controller) async {
     if (controller == null) {
       return;
     }
@@ -1193,7 +1227,7 @@ class _WebViewScreenState extends State<WebViewScreen>
 
     final bool nextDarkMode =
         WidgetsBinding.instance.platformDispatcher.platformBrightness ==
-            Brightness.dark;
+        Brightness.dark;
 
     if (_isDarkMode == nextDarkMode) {
       return;
@@ -1249,6 +1283,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   function removeOpenInAppElements() {
     var backdrop = document.getElementById('mobarka');
     var popup = document.getElementById('mobiluygdiv');
+    var hadInstallPrompt = !!(backdrop || popup);
 
     if (backdrop && backdrop.parentNode) {
       backdrop.parentNode.removeChild(backdrop);
@@ -1257,6 +1292,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     if (popup && popup.parentNode) {
       popup.parentNode.removeChild(popup);
     }
+
+    if (!hadInstallPrompt) { return; }
 
     if (document.documentElement) {
       document.documentElement.style.removeProperty('overflow');
@@ -2060,7 +2097,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     final String host = uri.host.toLowerCase();
     final String path = uri.path.toLowerCase();
 
-    final bool googleMapsUrl = scheme == 'geo' ||
+    final bool googleMapsUrl =
+        scheme == 'geo' ||
         host == 'maps.google.com' ||
         host.endsWith('.maps.google.com') ||
         ((host == 'google.com' || host.endsWith('.google.com')) &&
@@ -2119,9 +2157,7 @@ class _WebViewScreenState extends State<WebViewScreen>
         longitude != null &&
         latitude.isNotEmpty &&
         longitude.isNotEmpty) {
-      return Uri.parse(
-        'geo:$latitude,$longitude?q=$latitude,$longitude',
-      );
+      return Uri.parse('geo:$latitude,$longitude?q=$latitude,$longitude');
     }
 
     return uri;
@@ -2135,7 +2171,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     final String host = uri.host.toLowerCase();
     final String path = uri.path.toLowerCase();
 
-    final bool facebookHost = host == 'facebook.com' ||
+    final bool facebookHost =
+        host == 'facebook.com' ||
         host.endsWith('.facebook.com') ||
         host == 'fb.com' ||
         host.endsWith('.fb.com');
@@ -2216,9 +2253,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     try {
       final bool? opened = await _browserChannel.invokeMethod<bool>(
         'openInDefaultBrowser',
-        <String, String>{
-          'url': uri.toString(),
-        },
+        <String, String>{'url': uri.toString()},
       );
 
       return opened == true;
@@ -2233,9 +2268,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     try {
       final bool? opened = await _browserChannel.invokeMethod<bool>(
         'openMap',
-        <String, String>{
-          'url': normalizedUri.toString(),
-        },
+        <String, String>{'url': normalizedUri.toString()},
       );
 
       return opened == true;
@@ -2265,9 +2298,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Uri? _notificationTargetUrl(OSNotification notification) {
-    final Uri? launchUrl = _parseOneSignalUrl(
-      notification.launchUrl,
-    );
+    final Uri? launchUrl = _parseOneSignalUrl(notification.launchUrl);
 
     if (launchUrl != null) {
       return launchUrl;
@@ -2279,11 +2310,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       return null;
     }
 
-    for (final String key in <String>[
-      'webview_url',
-      'url',
-      'launch_url',
-    ]) {
+    for (final String key in <String>['webview_url', 'url', 'launch_url']) {
       final dynamic value = additionalData[key];
       final Uri? uri = _parseOneSignalUrl(value?.toString());
 
@@ -2313,9 +2340,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       return;
     }
 
-    await controller.loadUrl(
-      urlRequest: URLRequest(url: WebUri.uri(uri)),
-    );
+    await controller.loadUrl(urlRequest: URLRequest(url: WebUri.uri(uri)));
   }
 
   Future<void> _openPendingOneSignalUrl() async {
@@ -2350,17 +2375,12 @@ class _WebViewScreenState extends State<WebViewScreen>
     _oneSignalInAppResumeTimer?.cancel();
     final int generation = ++_oneSignalInAppResumeGeneration;
 
-    _oneSignalInAppResumeTimer = Timer(
-      const Duration(milliseconds: 600),
-      () {
-        unawaited(_resumeOneSignalInAppMessages(generation));
-      },
-    );
+    _oneSignalInAppResumeTimer = Timer(const Duration(milliseconds: 600), () {
+      unawaited(_resumeOneSignalInAppMessages(generation));
+    });
   }
 
-  Future<void> _resumeOneSignalInAppMessages(
-    int generation,
-  ) async {
+  Future<void> _resumeOneSignalInAppMessages(int generation) async {
     final Future<void>? initialization = _oneSignalInitializationFuture;
 
     if (initialization != null) {
@@ -2391,9 +2411,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       _oneSignalInAppMessagesResumed = true;
       _oneSignalInAppResumeTimer = null;
     } catch (error) {
-      debugPrint(
-        'OneSignal In-App Message devam ettirilemedi: $error',
-      );
+      debugPrint('OneSignal In-App Message devam ettirilemedi: $error');
     }
   }
 
@@ -2405,7 +2423,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   void _onInAppMessageClick(OSInAppMessageClickEvent event) {
-    final Uri? uri = _parseOneSignalUrl(event.result.url) ??
+    final Uri? uri =
+        _parseOneSignalUrl(event.result.url) ??
         _parseOneSignalUrl(event.result.actionId);
     if (uri != null && mounted) {
       unawaited(_openOneSignalUrlInsideApp(uri));
@@ -2457,15 +2476,15 @@ class _WebViewScreenState extends State<WebViewScreen>
     );
 
     _connectivitySubscription = Connectivity().onConnectivityChanged.listen(
-          _handleConnectivityChanged,
-        );
+      _handleConnectivityChanged,
+    );
 
     _checkInitialConnectivity();
   }
 
   Future<void> _checkInitialConnectivity() async {
-    final List<ConnectivityResult> result =
-        await Connectivity().checkConnectivity();
+    final List<ConnectivityResult> result = await Connectivity()
+        .checkConnectivity();
 
     if (!mounted) {
       return;
@@ -2564,8 +2583,8 @@ class _WebViewScreenState extends State<WebViewScreen>
 
     _currentLoadFailed = true;
 
-    final List<ConnectivityResult> connectivity =
-        await Connectivity().checkConnectivity();
+    final List<ConnectivityResult> connectivity = await Connectivity()
+        .checkConnectivity();
 
     if (!mounted) {
       return;
@@ -2580,8 +2599,8 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   Future<AppErrorScreen> _probeSite() async {
-    final List<ConnectivityResult> connectivity =
-        await Connectivity().checkConnectivity();
+    final List<ConnectivityResult> connectivity = await Connectivity()
+        .checkConnectivity();
 
     if (connectivity.isEmpty ||
         connectivity.every((item) => item == ConnectivityResult.none)) {
@@ -2592,16 +2611,15 @@ class _WebViewScreenState extends State<WebViewScreen>
       ..connectionTimeout = const Duration(seconds: 5);
 
     try {
-      final HttpClientRequest request =
-          await client.getUrl(Uri.parse(siteUrl)).timeout(
-                const Duration(seconds: 6),
-              );
+      final HttpClientRequest request = await client
+          .getUrl(Uri.parse(siteUrl))
+          .timeout(const Duration(seconds: 6));
 
       request.followRedirects = true;
 
       final HttpClientResponse response = await request.close().timeout(
-            const Duration(seconds: 6),
-          );
+        const Duration(seconds: 6),
+      );
 
       await response.drain<void>();
 
@@ -2623,9 +2641,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     }
   }
 
-  Future<void> _attemptRecovery({
-    required bool automatic,
-  }) async {
+  Future<void> _attemptRecovery({required bool automatic}) async {
     if (kDebugMode && _simulatorNoInternetPreview) {
       return;
     }
@@ -2643,10 +2659,7 @@ class _WebViewScreenState extends State<WebViewScreen>
             Duration(milliseconds: 1200),
             Duration(milliseconds: 2000),
           ]
-        : const <Duration>[
-            Duration.zero,
-            Duration(milliseconds: 900),
-          ];
+        : const <Duration>[Duration.zero, Duration(milliseconds: 900)];
 
     AppErrorScreen result = AppErrorScreen.serverError;
 
@@ -2694,11 +2707,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     _currentLoadFailed = false;
 
     try {
-      await controller.loadUrl(
-        urlRequest: URLRequest(
-          url: WebUri(siteUrl),
-        ),
-      );
+      await controller.loadUrl(urlRequest: URLRequest(url: WebUri(siteUrl)));
     } catch (_) {
       if (!mounted || generation != _recoveryGeneration) {
         return;
@@ -2810,10 +2819,7 @@ class _WebViewScreenState extends State<WebViewScreen>
         }
 
         unawaited(
-          _finalizePageAtWebViewProgress100(
-            controller,
-            loadGeneration,
-          ),
+          _finalizePageAtWebViewProgress100(controller, loadGeneration),
         );
       },
     );
@@ -2841,7 +2847,11 @@ class _WebViewScreenState extends State<WebViewScreen>
         return;
       }
 
-      await _syncThemeToWebView(controller);
+      try {
+        await _syncThemeToWebView(controller);
+      } catch (error) {
+        debugPrint('Sayfa teması eşitlenemedi: $error');
+      }
 
       if (!mounted ||
           loadGeneration != _pageLoadGeneration ||
@@ -2857,34 +2867,35 @@ class _WebViewScreenState extends State<WebViewScreen>
     }
   }
 
-  Future<void> _cleanAndRevealPage(
-    int expectedLoadGeneration,
-  ) async {
+  Future<void> _cleanAndRevealPage(int expectedLoadGeneration) async {
     final InAppWebViewController? controller = _webViewController;
 
     if (controller == null || expectedLoadGeneration != _pageLoadGeneration) {
       return;
     }
 
-    await controller.evaluateJavascript(
-      source: _openInAppProtection,
-    );
+    try {
+      await controller.evaluateJavascript(source: _openInAppProtection);
 
-    if (expectedLoadGeneration != _pageLoadGeneration) {
-      return;
+      if (expectedLoadGeneration != _pageLoadGeneration) {
+        return;
+      }
+
+      await controller.evaluateJavascript(
+        source: '''
+          (function () {
+            if (typeof window.__AYDINLATMA_PREPARE_PAGE__ === 'function') {
+              return window.__AYDINLATMA_PREPARE_PAGE__();
+            }
+  
+            return true;
+          })();
+        ''',
+      );
+    } catch (error) {
+      // Optional site cleanup must not leave a successfully loaded page covered.
+      debugPrint('Sayfa hazırlama betiği çalıştırılamadı: $error');
     }
-
-    await controller.evaluateJavascript(
-      source: '''
-        (function () {
-          if (typeof window.__AYDINLATMA_PREPARE_PAGE__ === 'function') {
-            return window.__AYDINLATMA_PREPARE_PAGE__();
-          }
-
-          return true;
-        })();
-      ''',
-    );
 
     if (!mounted || expectedLoadGeneration != _pageLoadGeneration) {
       return;
@@ -2897,8 +2908,9 @@ class _WebViewScreenState extends State<WebViewScreen>
         _splashProgress = 1.0;
       });
 
-      final int elapsedMs =
-          DateTime.now().difference(_splashStartedAt).inMilliseconds;
+      final int elapsedMs = DateTime.now()
+          .difference(_splashStartedAt)
+          .inMilliseconds;
       final int remainingMs = _minimumSplashVisibleMs - elapsedMs;
       final int hideDelayMs = remainingMs > 0 ? remainingMs : 0;
 
@@ -3059,9 +3071,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       context: context,
       barrierDismissible: true,
       builder: (BuildContext dialogContext) {
-        return ExitDialog(
-          isDarkMode: _isDarkMode,
-        );
+        return ExitDialog(isDarkMode: _isDarkMode);
       },
     );
 
@@ -3074,16 +3084,19 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   @override
   Widget build(BuildContext context) {
-    final double fixedPrimaryAreaHeight =
-        MediaQuery.of(context).padding.top + 4;
-    final Color nativeBackground =
-        _isDarkMode ? appDarkBackground : Colors.white;
-    final Color nativeStatusBarColor =
-        _isDarkMode ? const Color(0xFF0E1217) : appPrimary;
-    final Color splashBackground =
-        _splashDarkMode ? appDarkBackground : Colors.white;
-    final Color splashLoadingTrack =
-        _splashDarkMode ? appDarkSurface : loadingTrack;
+    final double fixedPrimaryAreaHeight = MediaQuery.of(context).padding.top;
+    final Color nativeBackground = _isDarkMode
+        ? appDarkBackground
+        : Colors.white;
+    final Color nativeStatusBarColor = _isDarkMode
+        ? const Color(0xFF0E1217)
+        : appPrimary;
+    final Color splashBackground = _splashDarkMode
+        ? appDarkBackground
+        : Colors.white;
+    final Color splashLoadingTrack = _splashDarkMode
+        ? appDarkSurface
+        : loadingTrack;
     final String splashImagePath = _splashDarkMode
         ? 'assets/images/splash_logo_dark.webp'
         : 'assets/images/splash_logo_light.webp';
@@ -3093,10 +3106,12 @@ class _WebViewScreenState extends State<WebViewScreen>
         statusBarColor: nativeStatusBarColor,
         statusBarIconBrightness: Brightness.light,
         statusBarBrightness: Brightness.dark,
-        systemNavigationBarColor:
-            _isDarkMode ? const Color(0xFF0E1217) : Colors.white,
-        systemNavigationBarIconBrightness:
-            _isDarkMode ? Brightness.light : Brightness.dark,
+        systemNavigationBarColor: _isDarkMode
+            ? const Color(0xFF0E1217)
+            : Colors.white,
+        systemNavigationBarIconBrightness: _isDarkMode
+            ? Brightness.light
+            : Brightness.dark,
       ),
       child: PopScope<Object?>(
         canPop: false,
@@ -3113,513 +3128,586 @@ class _WebViewScreenState extends State<WebViewScreen>
             child: Column(
               children: [
                 Expanded(
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Column(
-                      children: [
-                        SizedBox(
-                          height: fixedPrimaryAreaHeight,
-                          width: double.infinity,
-                          child: ColoredBox(
-                            color: nativeStatusBarColor,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Column(
+                        children: [
+                          SizedBox(
+                            height: fixedPrimaryAreaHeight,
+                            width: double.infinity,
+                            child: ColoredBox(color: nativeStatusBarColor),
                           ),
-                        ),
-                        Expanded(
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              IgnorePointer(
-                                ignoring: _errorScreen != AppErrorScreen.none,
-                                child: Opacity(
-                                  opacity: _errorScreen == AppErrorScreen.none
-                                      ? 1.0
-                                      : 0.0,
-                                  child: InAppWebView(
-                                    pullToRefreshController:
-                                        _pullToRefreshController,
-                                    initialUrlRequest: URLRequest(
-                                      url: WebUri(siteUrl),
-                                    ),
-                                    initialSettings: _webViewSettings,
-                                    initialUserScripts:
-                                        UnmodifiableListView<UserScript>([
-                                      if (Platform.isIOS)
+                          Expanded(
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                IgnorePointer(
+                                  ignoring: _errorScreen != AppErrorScreen.none,
+                                  child: Opacity(
+                                    opacity: _errorScreen == AppErrorScreen.none
+                                        ? 1.0
+                                        : 0.0,
+                                    child: InAppWebView(
+                                      pullToRefreshController:
+                                          _pullToRefreshController,
+                                      initialUrlRequest: URLRequest(
+                                        url: WebUri(siteUrl),
+                                      ),
+                                      initialSettings: _webViewSettings,
+                                      initialUserScripts: UnmodifiableListView<UserScript>([
+                                        if (Platform.isIOS)
+                                          UserScript(
+                                            source:
+                                                _smartSearchPopupIOSCookieBridge,
+                                            injectionTime:
+                                                UserScriptInjectionTime
+                                                    .AT_DOCUMENT_START,
+                                          ),
+                                        if (Platform.isIOS)
+                                          UserScript(
+                                            source:
+                                                'window.__AM_NATIVE_IOS_MAJOR__ = $_nativeIOSMajorVersion;\n$_smartSearchPopupIOSScrollbarBridge',
+                                            injectionTime:
+                                                UserScriptInjectionTime
+                                                    .AT_DOCUMENT_START,
+                                          ),
+                                        if (Platform.isIOS)
+                                          UserScript(
+                                            source:
+                                                _smartSearchPopupIOSLayoutBridge,
+                                            injectionTime:
+                                                UserScriptInjectionTime
+                                                    .AT_DOCUMENT_START,
+                                          ),
                                         UserScript(
-                                          source: _smartSearchPopupIOSCookieBridge,
+                                          source: _nativeThemeBridge,
                                           injectionTime: UserScriptInjectionTime
                                               .AT_DOCUMENT_START,
                                         ),
-                                      if (Platform.isIOS)
                                         UserScript(
-                                          source: _smartSearchPopupIOSScrollbarBridge,
+                                          source: _nativeVoiceRecognitionBridge,
                                           injectionTime: UserScriptInjectionTime
                                               .AT_DOCUMENT_START,
                                         ),
-                                      if (Platform.isIOS)
                                         UserScript(
-                                          source: _smartSearchPopupIOSLayoutBridge,
+                                          source: _webPushSuppressionBridge,
                                           injectionTime: UserScriptInjectionTime
                                               .AT_DOCUMENT_START,
                                         ),
-                                      UserScript(
-                                        source: _nativeThemeBridge,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                      UserScript(
-                                        source: _nativeVoiceRecognitionBridge,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                      UserScript(
-                                        source: _webPushSuppressionBridge,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                      UserScript(
-                                        source: _openInAppProtection,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                      UserScript(
-                                        source: _whatsAppShareHandler,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                      UserScript(
-                                        source: _externalLinkClickHandler,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                      UserScript(
-                                        source: _googleLoginClickHandler,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                      UserScript(
-                                        source: _emailRememberHandler,
-                                        injectionTime: UserScriptInjectionTime
-                                            .AT_DOCUMENT_START,
-                                      ),
-                                    ]),
-                                    onWebViewCreated: (controller) {
-                                      _webViewController = controller;
-                                      _openPendingOneSignalUrl();
-    
-                                      controller.addJavaScriptHandler(
-                                        handlerName: 'nativeThemeChanged',
-                                        callback: (List<dynamic> arguments) async {
-                                          if (!isMainSiteUrl(
-                                              await controller.getUrl())) {
-                                            return null;
-                                          }
-                                          final String preference =
-                                              arguments.isNotEmpty
-                                                  ? arguments[0].toString()
-                                                  : 'system';
-                                          final String resolvedTheme =
-                                              arguments.length > 1
-                                                  ? arguments[1].toString()
-                                                  : 'light';
-                                          final bool explicitChange =
-                                              arguments.length > 2 &&
-                                                  arguments[2] == true;
-    
-                                          await _applyThemePreference(
-                                            preference: preference,
-                                            resolvedTheme: resolvedTheme,
-                                            explicitChange: explicitChange,
-                                          );
-                                          return true;
-                                        },
-                                      );
-    
-                                      controller.addJavaScriptHandler(
-                                        handlerName: 'openWhatsAppShare',
-                                        callback: (List<dynamic> arguments) async {
-                                          if (arguments.isEmpty) {
-                                            return false;
-                                          }
-    
-                                          final Uri? uri = Uri.tryParse(
-                                            arguments.first.toString(),
-                                          );
-    
-                                          if (uri == null) {
-                                            return false;
-                                          }
-    
-                                          return _openExistingExternalLink(uri);
-                                        },
-                                      );
-    
-                                      controller.addJavaScriptHandler(
-                                        handlerName: 'showGoogleLoginNotice',
-                                        callback: (List<dynamic> arguments) {
-                                          _showGoogleLoginNotice();
-                                          return null;
-                                        },
-                                      );
-    
-                                      controller.addJavaScriptHandler(
-                                        handlerName: 'nativeVoiceSearch',
-                                        callback: (List<dynamic> arguments) async {
-                                          if (!isMainSiteUrl(
-                                              await controller.getUrl())) {
-                                            return null;
-                                          }
-                                          final String language =
-                                              arguments.isNotEmpty
-                                                  ? arguments.first.toString()
-                                                  : 'tr-TR';
-                                          return _startNativeVoiceRecognition(
-                                              language);
-                                        },
-                                      );
-    
-                                      controller.addJavaScriptHandler(
-                                        handlerName: 'nativeVoiceSearchStop',
-                                        callback: (List<dynamic> arguments) async {
-                                          if (!isMainSiteUrl(
-                                              await controller.getUrl())) {
-                                            return null;
-                                          }
-                                          await _stopNativeVoiceRecognition();
-                                          return true;
-                                        },
-                                      );
-    
-                                      controller.addJavaScriptHandler(
-                                        handlerName: 'openExternalLink',
-                                        callback: (List<dynamic> arguments) async {
-                                          if (arguments.length < 2) {
-                                            return false;
-                                          }
-    
-                                          final String type =
-                                              arguments[0].toString();
-                                          final Uri? uri = Uri.tryParse(
-                                            arguments[1].toString(),
-                                          );
-    
-                                          if (uri == null) {
-                                            return false;
-                                          }
-    
-                                          if (type == 'map') {
-                                            return _openMapNatively(uri);
-                                          }
-    
-                                          if (type == 'external') {
-                                            return _openExistingExternalLink(uri);
-                                          }
-    
-                                          if (type == 'browser') {
-                                            return _openInDefaultBrowser(uri);
-                                          }
-    
-                                          return false;
-                                        },
-                                      );
-                                    },
-                                    onPermissionRequest:
-                                        (controller, request) async {
-                                      if (!isMainSiteUrl(request.origin)) {
-                                        return PermissionResponse(
-                                          resources: [],
-                                          action: PermissionResponseAction.DENY,
+                                        UserScript(
+                                          source: _openInAppProtection,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                        UserScript(
+                                          source: _whatsAppShareHandler,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                        UserScript(
+                                          source: _externalLinkClickHandler,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                        UserScript(
+                                          source: _googleLoginClickHandler,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                        UserScript(
+                                          source: _emailRememberHandler,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                      ]),
+                                      onWebViewCreated: (controller) {
+                                        _webViewController = controller;
+                                        _openPendingOneSignalUrl();
+
+                                        controller.addJavaScriptHandler(
+                                          handlerName: 'nativeThemeChanged',
+                                          callback:
+                                              (List<dynamic> arguments) async {
+                                                if (!isMainSiteUrl(
+                                                  await controller.getUrl(),
+                                                )) {
+                                                  return null;
+                                                }
+                                                final String preference =
+                                                    arguments.isNotEmpty
+                                                    ? arguments[0].toString()
+                                                    : 'system';
+                                                final String resolvedTheme =
+                                                    arguments.length > 1
+                                                    ? arguments[1].toString()
+                                                    : 'light';
+                                                final bool explicitChange =
+                                                    arguments.length > 2 &&
+                                                    arguments[2] == true;
+
+                                                await _applyThemePreference(
+                                                  preference: preference,
+                                                  resolvedTheme: resolvedTheme,
+                                                  explicitChange:
+                                                      explicitChange,
+                                                );
+                                                return true;
+                                              },
                                         );
-                                      }
-                                      final audio = request.resources
-                                          .where((resource) =>
-                                              resource ==
-                                              PermissionResourceType.MICROPHONE)
-                                          .toList();
-                                      final granted = audio.isNotEmpty &&
-                                          await _requestMicrophonePermission();
-                                      return PermissionResponse(
-                                        resources: granted ? audio : [],
-                                        action: granted
-                                            ? PermissionResponseAction.GRANT
-                                            : PermissionResponseAction.DENY,
-                                      );
-                                    },
-                                    onCreateWindow: (controller, action) async {
-                                      final uri = action.request.url;
-                                      if (uri == null ||
-                                          uri.toString() == 'about:blank') {
-                                        return false;
-                                      }
-                                      if (_isFacebookAuthUrl(uri) ||
-                                          isMainSiteUrl(uri)) {
-                                        _rememberSiteUrl(await controller.getUrl());
-                                        await controller.loadUrl(
-                                            urlRequest: URLRequest(url: uri));
-                                      } else if (isCatalogUrl(uri)) {
-                                        await _openInDefaultBrowser(uri);
-                                      } else {
-                                        await _openExistingExternalLink(uri);
-                                      }
-                                      return false;
-                                    },
-                                    shouldOverrideUrlLoading: (
-                                      controller,
-                                      navigationAction,
-                                    ) async {
-                                      final Uri? uri = navigationAction.request.url;
-    
-                                      if (_isFacebookAuthUrl(uri)) {
-                                        final Uri? currentUrl =
+
+                                        controller.addJavaScriptHandler(
+                                          handlerName: 'openWhatsAppShare',
+                                          callback:
+                                              (List<dynamic> arguments) async {
+                                                if (arguments.isEmpty) {
+                                                  return false;
+                                                }
+
+                                                final Uri? uri = Uri.tryParse(
+                                                  arguments.first.toString(),
+                                                );
+
+                                                if (uri == null) {
+                                                  return false;
+                                                }
+
+                                                return _openExistingExternalLink(
+                                                  uri,
+                                                );
+                                              },
+                                        );
+
+                                        controller.addJavaScriptHandler(
+                                          handlerName: 'showGoogleLoginNotice',
+                                          callback: (List<dynamic> arguments) {
+                                            _showGoogleLoginNotice();
+                                            return null;
+                                          },
+                                        );
+
+                                        controller.addJavaScriptHandler(
+                                          handlerName: 'nativeVoiceSearch',
+                                          callback:
+                                              (List<dynamic> arguments) async {
+                                                if (!isMainSiteUrl(
+                                                  await controller.getUrl(),
+                                                )) {
+                                                  return null;
+                                                }
+                                                final String language =
+                                                    arguments.isNotEmpty
+                                                    ? arguments.first.toString()
+                                                    : 'tr-TR';
+                                                return _startNativeVoiceRecognition(
+                                                  language,
+                                                );
+                                              },
+                                        );
+
+                                        controller.addJavaScriptHandler(
+                                          handlerName: 'nativeVoiceSearchStop',
+                                          callback:
+                                              (List<dynamic> arguments) async {
+                                                if (!isMainSiteUrl(
+                                                  await controller.getUrl(),
+                                                )) {
+                                                  return null;
+                                                }
+                                                await _stopNativeVoiceRecognition();
+                                                return true;
+                                              },
+                                        );
+
+                                        controller.addJavaScriptHandler(
+                                          handlerName: 'openExternalLink',
+                                          callback:
+                                              (List<dynamic> arguments) async {
+                                                if (arguments.length < 2) {
+                                                  return false;
+                                                }
+
+                                                final String type = arguments[0]
+                                                    .toString();
+                                                final Uri? uri = Uri.tryParse(
+                                                  arguments[1].toString(),
+                                                );
+
+                                                if (uri == null) {
+                                                  return false;
+                                                }
+
+                                                if (type == 'map') {
+                                                  return _openMapNatively(uri);
+                                                }
+
+                                                if (type == 'external') {
+                                                  return _openExistingExternalLink(
+                                                    uri,
+                                                  );
+                                                }
+
+                                                if (type == 'browser') {
+                                                  return _openInDefaultBrowser(
+                                                    uri,
+                                                  );
+                                                }
+
+                                                return false;
+                                              },
+                                        );
+                                      },
+                                      onPermissionRequest:
+                                          (controller, request) async {
+                                            if (!isMainSiteUrl(
+                                              request.origin,
+                                            )) {
+                                              return PermissionResponse(
+                                                resources: [],
+                                                action: PermissionResponseAction
+                                                    .DENY,
+                                              );
+                                            }
+                                            final audio = request.resources
+                                                .where(
+                                                  (resource) =>
+                                                      resource ==
+                                                      PermissionResourceType
+                                                          .MICROPHONE,
+                                                )
+                                                .toList();
+                                            final granted =
+                                                audio.isNotEmpty &&
+                                                await _requestMicrophonePermission();
+                                            return PermissionResponse(
+                                              resources: granted ? audio : [],
+                                              action: granted
+                                                  ? PermissionResponseAction
+                                                        .GRANT
+                                                  : PermissionResponseAction
+                                                        .DENY,
+                                            );
+                                          },
+                                      onCreateWindow:
+                                          (controller, action) async {
+                                            final uri = action.request.url;
+                                            if (uri == null ||
+                                                uri.toString() ==
+                                                    'about:blank') {
+                                              return false;
+                                            }
+                                            if (_isFacebookAuthUrl(uri) ||
+                                                isMainSiteUrl(uri)) {
+                                              _rememberSiteUrl(
+                                                await controller.getUrl(),
+                                              );
+                                              await controller.loadUrl(
+                                                urlRequest: URLRequest(
+                                                  url: uri,
+                                                ),
+                                              );
+                                            } else if (isCatalogUrl(uri)) {
+                                              await _openInDefaultBrowser(uri);
+                                            } else {
+                                              await _openExistingExternalLink(
+                                                uri,
+                                              );
+                                            }
+                                            return false;
+                                          },
+                                      shouldOverrideUrlLoading:
+                                          (controller, navigationAction) async {
+                                            final Uri? uri =
+                                                navigationAction.request.url;
+
+                                            if (_isFacebookAuthUrl(uri)) {
+                                              final Uri? currentUrl =
+                                                  await controller.getUrl();
+                                              _rememberSiteUrl(currentUrl);
+                                              return NavigationActionPolicy
+                                                  .ALLOW;
+                                            }
+
+                                            _rememberSiteUrl(uri);
+
+                                            if (_isWhatsAppUrl(uri)) {
+                                              await _openExistingExternalLink(
+                                                uri!,
+                                              );
+                                              return NavigationActionPolicy
+                                                  .CANCEL;
+                                            }
+
+                                            if (isCatalogUrl(uri)) {
+                                              await _openInDefaultBrowser(uri!);
+                                              return NavigationActionPolicy
+                                                  .CANCEL;
+                                            }
+
+                                            return NavigationActionPolicy.ALLOW;
+                                          },
+                                      onLoadStart: (controller, url) {
+                                        _rememberSiteUrl(url);
+
+                                        if (_showSplash && isMainSiteUrl(url)) {
+                                          _initialRealPageLoadStarted = true;
+                                        }
+
+                                        _pageLoadGeneration++;
+                                        _finishTimer?.cancel();
+                                        _pageReadyStabilityTimer?.cancel();
+                                        _cancelPendingOneSignalInAppResume();
+
+                                        if (_errorScreen ==
+                                            AppErrorScreen.none) {
+                                          _currentLoadFailed = false;
+                                        }
+
+                                        if (!mounted) {
+                                          return;
+                                        }
+
+                                        setState(() {
+                                          _pageLoading = true;
+
+                                          if (!_showSplash) {
+                                            _siteProgress = 0.0;
+                                          }
+                                        });
+                                      },
+                                      onProgressChanged: (controller, progress) {
+                                        final int loadGeneration =
+                                            _pageLoadGeneration;
+
+                                        // flutter_inappwebview ilk acilista once about:blank
+                                        // bootstrap dokumanini tamamlayip %100 bildirebilir.
+                                        // Gercek site onLoadStart almadan bu sahte %100'u
+                                        // splash bitisi olarak kabul etmiyoruz.
+                                        final bool waitingForInitialRealPage =
+                                            _showSplash &&
+                                            !_initialRealPageLoadStarted;
+                                        final int effectiveProgress =
+                                            waitingForInitialRealPage
+                                            ? progress.clamp(0, 10).toInt()
+                                            : progress;
+
+                                        _updateMonotonicProgress(
+                                          rawProgress: effectiveProgress,
+                                          splash: _showSplash,
+                                        );
+
+                                        if (progress >= 100 &&
+                                            !waitingForInitialRealPage) {
+                                          _scheduleFinalizeAfterStableProgress100(
+                                            controller,
+                                            loadGeneration,
+                                          );
+                                        }
+                                      },
+                                      onLoadStop: (controller, url) async {
+                                        final int generation =
+                                            _pageLoadGeneration;
+                                        _rememberSiteUrl(url);
+                                        await _pullToRefreshController
+                                            .endRefreshing();
+                                        if (url == null ||
+                                            url.scheme == 'about' ||
+                                            !_initialRealPageLoadStarted ||
+                                            _currentLoadFailed ||
+                                            !mounted) {
+                                          return;
+                                        }
+                                        final WebUri? currentUrl =
                                             await controller.getUrl();
-                                        _rememberSiteUrl(currentUrl);
-                                        return NavigationActionPolicy.ALLOW;
-                                      }
-    
-                                      _rememberSiteUrl(uri);
-    
-                                      if (_isWhatsAppUrl(uri)) {
-                                        await _openExistingExternalLink(uri!);
-                                        return NavigationActionPolicy.CANCEL;
-                                      }
-    
-                                      if (isCatalogUrl(uri)) {
-                                        await _openInDefaultBrowser(uri!);
-                                        return NavigationActionPolicy.CANCEL;
-                                      }
-    
-                                      return NavigationActionPolicy.ALLOW;
-                                    },
-                                    onLoadStart: (controller, url) {
-                                      _rememberSiteUrl(url);
-    
-                                      if (_showSplash && isMainSiteUrl(url)) {
-                                        _initialRealPageLoadStarted = true;
-                                      }
-    
-                                      _pageLoadGeneration++;
-                                      _finishTimer?.cancel();
-                                      _pageReadyStabilityTimer?.cancel();
-                                      _cancelPendingOneSignalInAppResume();
-    
-                                      if (_errorScreen == AppErrorScreen.none) {
-                                        _currentLoadFailed = false;
-                                      }
-    
-                                      if (!mounted) {
-                                        return;
-                                      }
-    
-                                      setState(() {
-                                        _pageLoading = true;
-    
-                                        if (!_showSplash) {
-                                          _siteProgress = 0.0;
+                                        if (generation == _pageLoadGeneration &&
+                                            currentUrl?.toString() ==
+                                                url.toString()) {
+                                          _scheduleFinalizeAfterStableProgress100(
+                                            controller,
+                                            generation,
+                                          );
                                         }
-                                      });
-                                    },
-                                    onProgressChanged: (controller, progress) {
-                                      final int loadGeneration =
-                                          _pageLoadGeneration;
-    
-                                      // flutter_inappwebview ilk acilista once about:blank
-                                      // bootstrap dokumanini tamamlayip %100 bildirebilir.
-                                      // Gercek site onLoadStart almadan bu sahte %100'u
-                                      // splash bitisi olarak kabul etmiyoruz.
-                                      final bool waitingForInitialRealPage =
-                                          _showSplash &&
-                                              !_initialRealPageLoadStarted;
-                                      final int effectiveProgress =
-                                          waitingForInitialRealPage
-                                              ? progress.clamp(0, 10).toInt()
-                                              : progress;
-    
-                                      _updateMonotonicProgress(
-                                        rawProgress: effectiveProgress,
-                                        splash: _showSplash,
-                                      );
-    
-                                      if (progress >= 100 &&
-                                          !waitingForInitialRealPage) {
-                                        _scheduleFinalizeAfterStableProgress100(
-                                          controller,
-                                          loadGeneration,
-                                        );
-                                      }
-                                    },
-                                    onLoadStop: (controller, url) async {
-                                      _rememberSiteUrl(url);
-                                      await _pullToRefreshController
-                                          .endRefreshing();
-                                    },
-                                    onReceivedError:
-                                        (controller, request, error) async {
-                                      if (request.isForMainFrame == false ||
-                                          error.type ==
-                                              WebResourceErrorType.CANCELLED) {
-                                        return;
-                                      }
-                                      final url = request.url;
-                                      await _pullToRefreshController
-                                          .endRefreshing();
-    
-                                      if (_isWhatsAppUrl(url)) {
-                                        _currentLoadFailed = false;
-    
-                                        if (mounted) {
-                                          setState(() {
-                                            _pageLoading = false;
-                                            _siteProgress = 0.0;
-                                          });
-                                        }
-    
-                                        return;
-                                      }
-    
-                                      await _handleWebViewError(
-                                        controller,
-                                        url,
-                                      );
-                                    },
-                                    onReceivedHttpError:
-                                        (controller, request, response) async {
-                                      if (request.isForMainFrame == false) {
-                                        return;
-                                      }
-                                      final url = request.url;
-                                      final statusCode = response.statusCode ?? 0;
-                                      await _pullToRefreshController
-                                          .endRefreshing();
-    
-                                      if (_isWhatsAppUrl(url)) {
-                                        _currentLoadFailed = false;
-    
-                                        if (mounted) {
-                                          setState(() {
-                                            _pageLoading = false;
-                                            _siteProgress = 0.0;
-                                          });
-                                        }
-    
-                                        return;
-                                      }
-    
-                                      if (statusCode >= 500) {
-                                        await _handleWebViewError(
-                                          controller,
-                                          url,
-                                        );
-                                      }
-                                    },
-                                  ),
-                                ),
-                              ),
-                              if (!_showSplash &&
-                                  _pageLoading &&
-                                  _errorScreen == AppErrorScreen.none)
-                                Positioned(
-                                  top: 0,
-                                  left: 0,
-                                  right: 0,
-                                  height: 4,
-                                  child: IgnorePointer(
-                                    child: LinearProgressIndicator(
-                                      value: _siteProgress,
-                                      backgroundColor: loadingTrack,
-                                      valueColor:
-                                          const AlwaysStoppedAnimation<Color>(
-                                        loadingOrange,
-                                      ),
+                                      },
+                                      onReceivedError:
+                                          (controller, request, error) async {
+                                            if (request.isForMainFrame ==
+                                                    false ||
+                                                error.type ==
+                                                    WebResourceErrorType
+                                                        .CANCELLED) {
+                                              return;
+                                            }
+                                            final url = request.url;
+                                            await _pullToRefreshController
+                                                .endRefreshing();
+
+                                            if (_isWhatsAppUrl(url)) {
+                                              _currentLoadFailed = false;
+
+                                              if (mounted) {
+                                                setState(() {
+                                                  _pageLoading = false;
+                                                  _siteProgress = 0.0;
+                                                });
+                                              }
+
+                                              return;
+                                            }
+
+                                            await _handleWebViewError(
+                                              controller,
+                                              url,
+                                            );
+                                          },
+                                      onReceivedHttpError:
+                                          (
+                                            controller,
+                                            request,
+                                            response,
+                                          ) async {
+                                            if (request.isForMainFrame ==
+                                                false) {
+                                              return;
+                                            }
+                                            final url = request.url;
+                                            final statusCode =
+                                                response.statusCode ?? 0;
+                                            await _pullToRefreshController
+                                                .endRefreshing();
+
+                                            if (_isWhatsAppUrl(url)) {
+                                              _currentLoadFailed = false;
+
+                                              if (mounted) {
+                                                setState(() {
+                                                  _pageLoading = false;
+                                                  _siteProgress = 0.0;
+                                                });
+                                              }
+
+                                              return;
+                                            }
+
+                                            if (statusCode >= 500) {
+                                              await _handleWebViewError(
+                                                controller,
+                                                url,
+                                              );
+                                            }
+                                          },
                                     ),
                                   ),
                                 ),
-                            ],
+                                if (!_showSplash &&
+                                    _pageLoading &&
+                                    _errorScreen == AppErrorScreen.none)
+                                  Positioned(
+                                    top: 0,
+                                    left: 0,
+                                    right: 0,
+                                    height: 4,
+                                    child: IgnorePointer(
+                                      child: LinearProgressIndicator(
+                                        value: _siteProgress,
+                                        backgroundColor: loadingTrack,
+                                        valueColor:
+                                            const AlwaysStoppedAnimation<Color>(
+                                              loadingOrange,
+                                            ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_errorScreen != AppErrorScreen.none)
+                        Positioned.fill(
+                          child: AppConnectionErrorScreen(
+                            type: _errorScreen,
+                            retryInProgress: _retryInProgress,
+                            onRetry: _retryCurrentPage,
+                            isDarkMode: _isDarkMode,
                           ),
                         ),
-                      ],
-                    ),
-                    if (_errorScreen != AppErrorScreen.none)
-                      Positioned.fill(
-                        child: AppConnectionErrorScreen(
-                          type: _errorScreen,
-                          retryInProgress: _retryInProgress,
-                          onRetry: _retryCurrentPage,
-                          isDarkMode: _isDarkMode,
-                        ),
-                      ),
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 142,
-                      child: IgnorePointer(
-                        child: Center(
-                          child: AnimatedOpacity(
-                            opacity: _showWelcomeTooltip &&
-                                    _errorScreen == AppErrorScreen.none
-                                ? 1.0
-                                : 0.0,
-                            duration: const Duration(milliseconds: 350),
-                            curve: Curves.easeInOut,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 22,
-                                vertical: 11,
-                              ),
-                              decoration: BoxDecoration(
-                                color: const Color.fromRGBO(13, 13, 13, 1),
-                                borderRadius: BorderRadius.circular(999),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withValues(alpha: 0.28),
-                                    blurRadius: 20,
-                                    offset: const Offset(0, 10),
+                      Positioned(
+                        left: 0,
+                        right: 0,
+                        bottom: 142,
+                        child: IgnorePointer(
+                          child: Center(
+                            child: AnimatedOpacity(
+                              opacity:
+                                  _showWelcomeTooltip &&
+                                      _errorScreen == AppErrorScreen.none
+                                  ? 1.0
+                                  : 0.0,
+                              duration: const Duration(milliseconds: 350),
+                              curve: Curves.easeInOut,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 22,
+                                  vertical: 11,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: const Color.fromRGBO(13, 13, 13, 1),
+                                  borderRadius: BorderRadius.circular(999),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withValues(
+                                        alpha: 0.28,
+                                      ),
+                                      blurRadius: 20,
+                                      offset: const Offset(0, 10),
+                                    ),
+                                  ],
+                                ),
+                                child: const Text(
+                                  'Hoş geldiniz. 🤗',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                    fontFamily: 'Nunito',
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.white,
+                                    letterSpacing: 1.0,
+                                    height: 1.15,
                                   ),
-                                ],
-                              ),
-                              child: const Text(
-                                'Hoş geldiniz. 🤗',
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                  fontFamily: 'Nunito',
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white,
-                                  letterSpacing: 1.0,
-                                  height: 1.15,
                                 ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
-                    if (_showSplash)
-                      Positioned.fill(
-                        child: Container(
-                          color: splashBackground,
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              _CroppedSplashLogo(assetPath: splashImagePath),
-                              Align(
-                                alignment: Alignment.bottomCenter,
-                                child: SizedBox(
-                                  height: 4,
-                                  child: LinearProgressIndicator(
-                                    value: _splashProgress,
-                                    backgroundColor: splashLoadingTrack,
-                                    valueColor: const AlwaysStoppedAnimation<Color>(
-                                      loadingOrange,
+                      if (_showSplash)
+                        Positioned.fill(
+                          child: Container(
+                            color: splashBackground,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                _CroppedSplashLogo(assetPath: splashImagePath),
+                                Align(
+                                  alignment: Alignment.bottomCenter,
+                                  child: SizedBox(
+                                    height: 4,
+                                    child: LinearProgressIndicator(
+                                      value: _splashProgress,
+                                      backgroundColor: splashLoadingTrack,
+                                      valueColor:
+                                          const AlwaysStoppedAnimation<Color>(
+                                            loadingOrange,
+                                          ),
                                     ),
                                   ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                  ],
-                ),
+                    ],
+                  ),
                 ),
                 if (kDebugMode &&
                     Platform.isIOS &&
@@ -3650,9 +3738,11 @@ class _WebViewScreenState extends State<WebViewScreen>
                               minimumSize: const Size(0, 40),
                             ),
                             icon: const Icon(Icons.science_outlined, size: 18),
-                            label: Text(_simulatorNoInternetPreview
-                                ? 'Testi bitir'
-                                : 'No-internet testi'),
+                            label: Text(
+                              _simulatorNoInternetPreview
+                                  ? 'Testi bitir'
+                                  : 'No-internet testi',
+                            ),
                           ),
                         ),
                       ),
@@ -3670,7 +3760,7 @@ class _WebViewScreenState extends State<WebViewScreen>
 // Cropped assets are sized independently of the screen's height. Short
 // viewports can scroll instead of shrinking a complete portrait composition.
 class _CroppedSplashLogo extends StatelessWidget {
-  const _CroppedSplashLogo({super.key, required this.assetPath});
+  const _CroppedSplashLogo({required this.assetPath});
 
   final String assetPath;
 
@@ -3679,24 +3769,20 @@ class _CroppedSplashLogo extends StatelessWidget {
     return SafeArea(
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final double availableWidth =
-              (constraints.maxWidth - 48).clamp(0.0, 420.0).toDouble();
-          final double availableHeight =
-              (constraints.maxHeight - 48).clamp(0.0, double.infinity).toDouble();
-          return SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: availableHeight),
-              child: Center(
-                child: Image.asset(
-                  assetPath,
-                  width: availableWidth,
-                  height: 168,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  semanticLabel: 'Uygulama logosu',
-                ),
-              ),
+          final double width = (constraints.maxWidth - 48)
+              .clamp(0.0, 420.0)
+              .toDouble();
+          final double height = (constraints.maxHeight - 48)
+              .clamp(0.0, 168.0)
+              .toDouble();
+          return Center(
+            child: Image.asset(
+              assetPath,
+              width: width,
+              height: height,
+              fit: BoxFit.contain,
+              filterQuality: FilterQuality.high,
+              semanticLabel: 'Uygulama logosu',
             ),
           );
         },
@@ -3707,7 +3793,6 @@ class _CroppedSplashLogo extends StatelessWidget {
 
 class _CroppedErrorArtwork extends StatelessWidget {
   const _CroppedErrorArtwork({
-    super.key,
     required this.logoPath,
     required this.illustrationPath,
     required this.illustrationLabel,
@@ -3723,57 +3808,72 @@ class _CroppedErrorArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
-        final bool horizontalLayout = constraints.maxWidth >= 600 &&
-            constraints.maxWidth > constraints.maxHeight;
-        final double verticalPadding = horizontalLayout ? 16.0 : 24.0;
-        final double contentWidth =
-            (constraints.maxWidth - 48).clamp(0.0, 760.0).toDouble();
-        final double contentHeight = (constraints.maxHeight -
-                verticalPadding * 2)
+        final bool landscape = constraints.maxWidth > constraints.maxHeight;
+        final double padding = landscape ? 12.0 : 24.0;
+        final double width = (constraints.maxWidth - 48)
+            .clamp(0.0, 760.0)
+            .toDouble();
+        final double height = (constraints.maxHeight - padding * 2)
             .clamp(0.0, double.infinity)
             .toDouble();
-        final double logoSize =
-            contentWidth.clamp(0.0, horizontalLayout ? 144.0 : 168.0).toDouble();
-        final double illustrationWidth =
-            contentWidth.clamp(0.0, 240.0).toDouble();
-        final Widget logo = Image.asset(
-          logoPath,
-          width: logoSize,
-          height: logoSize,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-          semanticLabel: 'Uygulama logosu',
-        );
-        final Widget illustration = Image.asset(
-          illustrationPath,
-          width: illustrationWidth,
-          height: horizontalLayout ? 164 : 240,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-          semanticLabel: illustrationLabel,
-        );
-        // Keep the logo above the illustration in every orientation.
-        final Widget content = Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            logo,
-            SizedBox(height: horizontalLayout ? 12 : 28),
-            illustration,
-            SizedBox(height: horizontalLayout ? 14 : 24),
-            retryButton,
-          ],
-        );
-        return SingleChildScrollView(
-          padding: EdgeInsets.symmetric(
-            horizontal: 24,
-            vertical: verticalPadding,
+        final double logoBase = landscape ? 144.0 : 168.0;
+        final double artBase = landscape ? 164.0 : 240.0;
+        final double logoGap = landscape ? 12.0 : 28.0;
+        final double buttonGap = landscape ? 14.0 : 24.0;
+        final double reservedHeight = logoGap + buttonGap + 52;
+        final double heightScale =
+            ((height - reservedHeight) / (logoBase + artBase))
+                .clamp(0.0, 1.0)
+                .toDouble();
+        final double widthScale = (width / 240).clamp(0.0, 1.0).toDouble();
+        final double scale = heightScale.clamp(0.0, widthScale).toDouble();
+        // Very short accessibility/multi-window views can scroll from the top.
+        // In ordinary phone/tablet views the whole composition fits at once.
+        final bool needsScroll = scale < 0.3;
+        final double artworkScale = needsScroll
+            ? widthScale.clamp(0.3, 1.0).toDouble()
+            : scale;
+        final Widget content = SizedBox(
+          width: width,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                logoPath,
+                width: logoBase * artworkScale,
+                height: logoBase * artworkScale,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                semanticLabel: 'Uygulama logosu',
+              ),
+              SizedBox(height: logoGap),
+              Image.asset(
+                illustrationPath,
+                width: 240 * artworkScale,
+                height: artBase * artworkScale,
+                fit: BoxFit.contain,
+                filterQuality: FilterQuality.high,
+                semanticLabel: illustrationLabel,
+              ),
+              SizedBox(height: buttonGap),
+              SizedBox(
+                width: width.clamp(0.0, 190.0).toDouble(),
+                height: 52,
+                child: FittedBox(fit: BoxFit.scaleDown, child: retryButton),
+              ),
+            ],
           ),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: contentHeight),
-            child: Center(
-              child: SizedBox(width: contentWidth, child: content),
-            ),
-          ),
+        );
+        if (needsScroll) {
+          return SingleChildScrollView(
+            key: ValueKey<bool>(landscape),
+            padding: EdgeInsets.symmetric(horizontal: 24, vertical: padding),
+            child: content,
+          );
+        }
+        return Padding(
+          padding: EdgeInsets.symmetric(horizontal: 24, vertical: padding),
+          child: Center(child: content),
         );
       },
     );
@@ -3801,18 +3901,16 @@ class AppConnectionErrorScreen extends StatelessWidget {
         : 'assets/images/error_logo_light.webp';
     final String imagePath = type == AppErrorScreen.noInternet
         ? (isDarkMode
-            ? 'assets/images/no_internet_dark.webp'
-            : 'assets/images/no_internet_light.webp')
+              ? 'assets/images/no_internet_dark.webp'
+              : 'assets/images/no_internet_light.webp')
         : (isDarkMode
-            ? 'assets/images/server_error_dark.webp'
-            : 'assets/images/server_error_light.webp');
-    final Color backgroundColor =
-        isDarkMode ? appDarkBackground : Colors.white;
+              ? 'assets/images/server_error_dark.webp'
+              : 'assets/images/server_error_light.webp');
+    final Color backgroundColor = isDarkMode ? appDarkBackground : Colors.white;
 
     return Material(
       color: backgroundColor,
       child: SafeArea(
-        top: false,
         child: _CroppedErrorArtwork(
           logoPath: logoPath,
           illustrationPath: imagePath,
@@ -3830,7 +3928,11 @@ class AppConnectionErrorScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
               ),
-              onPressed: retryInProgress ? null : () { onRetry(); },
+              onPressed: retryInProgress
+                  ? null
+                  : () {
+                      onRetry();
+                    },
               child: Text(
                 retryInProgress ? 'Kontrol Ediliyor...' : 'Tekrar Dene',
                 style: const TextStyle(
@@ -3849,28 +3951,28 @@ class AppConnectionErrorScreen extends StatelessWidget {
 }
 
 class ExitDialog extends StatelessWidget {
-  const ExitDialog({
-    super.key,
-    required this.isDarkMode,
-  });
+  const ExitDialog({super.key, required this.isDarkMode});
 
   final bool isDarkMode;
 
   @override
   Widget build(BuildContext context) {
     final Color modalBackground = isDarkMode ? appDarkCard : Colors.white;
-    final Color titleColor =
-        isDarkMode ? appDarkTextPrimary : const Color.fromRGBO(16, 28, 44, 1);
+    final Color titleColor = isDarkMode
+        ? appDarkTextPrimary
+        : const Color.fromRGBO(16, 28, 44, 1);
     final Color descriptionColor = isDarkMode
         ? appDarkTextPrimary
         : const Color.fromRGBO(100, 105, 118, 1);
-    final Color ringColor =
-        isDarkMode ? appDarkBorder : const Color.fromRGBO(221, 242, 252, 1);
+    final Color ringColor = isDarkMode
+        ? appDarkBorder
+        : const Color.fromRGBO(221, 242, 252, 1);
     final Color dividerColor = isDarkMode
         ? const Color(0xFF2A3440)
         : const Color.fromRGBO(229, 231, 235, 1);
-    final Color cancelBackground =
-        isDarkMode ? appDarkSurface : const Color.fromRGBO(247, 247, 247, 1);
+    final Color cancelBackground = isDarkMode
+        ? appDarkSurface
+        : const Color.fromRGBO(247, 247, 247, 1);
     final Color cancelForeground = isDarkMode
         ? appDarkTextPrimary
         : const Color.fromRGBO(100, 105, 118, 1);
@@ -3911,10 +4013,7 @@ class ExitDialog extends StatelessWidget {
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
                         color: modalBackground,
-                        border: Border.all(
-                          color: ringColor,
-                          width: 4,
-                        ),
+                        border: Border.all(color: ringColor, width: 4),
                       ),
                       child: const Icon(
                         Icons.logout_rounded,
@@ -3970,10 +4069,7 @@ class ExitDialog extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 32),
-                Container(
-                  height: 1,
-                  color: dividerColor,
-                ),
+                Container(height: 1, color: dividerColor),
                 const SizedBox(height: 28),
                 Row(
                   children: [
@@ -4074,10 +4170,7 @@ class ExitDialog extends StatelessWidget {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: modalBackground,
-              border: Border.all(
-                color: ringColor,
-                width: 12,
-              ),
+              border: Border.all(color: ringColor, width: 12),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(
