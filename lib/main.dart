@@ -3083,8 +3083,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     final Color splashLoadingTrack =
         _splashDarkMode ? appDarkSurface : loadingTrack;
     final String splashImagePath = _splashDarkMode
-        ? 'assets/images/splash_dark.webp'
-        : 'assets/images/splash_light.webp';
+        ? 'assets/images/splash_logo_dark.webp'
+        : 'assets/images/splash_logo_light.webp';
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
@@ -3598,11 +3598,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                           child: Stack(
                             fit: StackFit.expand,
                             children: [
-                              Image.asset(
-                                splashImagePath,
-                                fit: BoxFit.contain,
-                                alignment: Alignment.center,
-                              ),
+                              _CroppedSplashLogo(assetPath: splashImagePath),
                               Align(
                                 alignment: Alignment.bottomCenter,
                                 child: SizedBox(
@@ -3669,6 +3665,137 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 }
 
+// Cropped assets are sized independently of the screen's height. Short
+// viewports can scroll instead of shrinking a complete portrait composition.
+class _CroppedSplashLogo extends StatelessWidget {
+  const _CroppedSplashLogo({Key? key, required this.assetPath})
+      : super(key: key);
+
+  final String assetPath;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final double availableWidth =
+              (constraints.maxWidth - 48).clamp(0.0, 420.0).toDouble();
+          final double availableHeight =
+              (constraints.maxHeight - 48).clamp(0.0, double.infinity).toDouble();
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: availableHeight),
+              child: Center(
+                child: Image.asset(
+                  assetPath,
+                  width: availableWidth,
+                  height: 168,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                  semanticLabel: 'Uygulama logosu',
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _CroppedErrorArtwork extends StatelessWidget {
+  const _CroppedErrorArtwork({
+    Key? key,
+    required this.logoPath,
+    required this.illustrationPath,
+    required this.illustrationLabel,
+    required this.retryButton,
+  }) : super(key: key);
+
+  final String logoPath;
+  final String illustrationPath;
+  final String illustrationLabel;
+  final Widget retryButton;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool horizontalLayout = constraints.maxWidth >= 600 &&
+            constraints.maxWidth > constraints.maxHeight;
+        final double verticalPadding = horizontalLayout ? 16.0 : 24.0;
+        final double contentWidth =
+            (constraints.maxWidth - 48).clamp(0.0, 760.0).toDouble();
+        final double contentHeight = (constraints.maxHeight -
+                verticalPadding * 2)
+            .clamp(0.0, double.infinity)
+            .toDouble();
+        final double logoSize =
+            contentWidth.clamp(0.0, horizontalLayout ? 144.0 : 168.0).toDouble();
+        final double illustrationWidth =
+            contentWidth.clamp(0.0, 240.0).toDouble();
+        final Widget logo = Image.asset(
+          logoPath,
+          width: logoSize,
+          height: logoSize,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          semanticLabel: 'Uygulama logosu',
+        );
+        final Widget illustration = Image.asset(
+          illustrationPath,
+          width: illustrationWidth,
+          height: horizontalLayout ? 164 : 240,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+          semanticLabel: illustrationLabel,
+        );
+        final Widget content = horizontalLayout
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  Expanded(child: Center(child: logo)),
+                  const SizedBox(width: 32),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        illustration,
+                        const SizedBox(height: 14),
+                        retryButton,
+                      ],
+                    ),
+                  ),
+                ],
+              )
+            : Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  logo,
+                  const SizedBox(height: 28),
+                  illustration,
+                  const SizedBox(height: 24),
+                  retryButton,
+                ],
+              );
+        return SingleChildScrollView(
+          padding: EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: verticalPadding,
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: contentHeight),
+            child: Center(
+              child: SizedBox(width: contentWidth, child: content),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class AppConnectionErrorScreen extends StatelessWidget {
   const AppConnectionErrorScreen({
     super.key,
@@ -3685,6 +3812,9 @@ class AppConnectionErrorScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final String logoPath = isDarkMode
+        ? 'assets/images/error_logo_dark.webp'
+        : 'assets/images/error_logo_light.webp';
     final String imagePath = type == AppErrorScreen.noInternet
         ? (isDarkMode
             ? 'assets/images/no_internet_dark.webp'
@@ -3692,75 +3822,42 @@ class AppConnectionErrorScreen extends StatelessWidget {
         : (isDarkMode
             ? 'assets/images/server_error_dark.webp'
             : 'assets/images/server_error_light.webp');
-
-    final Color backgroundColor = isDarkMode ? appDarkBackground : Colors.white;
+    final Color backgroundColor =
+        isDarkMode ? appDarkBackground : Colors.white;
 
     return Material(
       color: backgroundColor,
       child: SafeArea(
         top: false,
-        child: LayoutBuilder(
-          builder: (
-            BuildContext context,
-            BoxConstraints constraints,
-          ) {
-            final double maxImageHeight = constraints.maxHeight * 0.78;
-            final double imageHeight = (constraints.maxHeight - 112).clamp(
-              maxImageHeight < 220.0 ? maxImageHeight : 220.0,
-              maxImageHeight,
-            );
-
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 22),
-              child: Column(
-                children: [
-                  Expanded(
-                    child: Center(
-                      child: Image.asset(
-                        imagePath,
-                        height: imageHeight,
-                        width: double.infinity,
-                        fit: BoxFit.contain,
-                        alignment: Alignment.center,
-                        filterQuality: FilterQuality.high,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: 190,
-                    height: 52,
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: appPrimary,
-                        side: const BorderSide(
-                          color: appPrimary,
-                          width: 2,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      onPressed: retryInProgress
-                          ? null
-                          : () {
-                              onRetry();
-                            },
-                      child: Text(
-                        retryInProgress ? 'Kontrol Ediliyor...' : 'Tekrar Dene',
-                        style: const TextStyle(
-                          fontFamily: 'Nunito',
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: appPrimary,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+        child: _CroppedErrorArtwork(
+          logoPath: logoPath,
+          illustrationPath: imagePath,
+          illustrationLabel: type == AppErrorScreen.noInternet
+              ? 'İnternet Bağlantısı Bulunamadı!'
+              : 'Sunucuya ulaşılamadı',
+          retryButton: SizedBox(
+            width: 190,
+            height: 52,
+            child: OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: appPrimary,
+                side: const BorderSide(color: appPrimary, width: 2),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
-            );
-          },
+              onPressed: retryInProgress ? null : () { onRetry(); },
+              child: Text(
+                retryInProgress ? 'Kontrol Ediliyor...' : 'Tekrar Dene',
+                style: const TextStyle(
+                  fontFamily: 'Nunito',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: appPrimary,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );
