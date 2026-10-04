@@ -224,6 +224,71 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
+  // Defer the cookie notice while the smart popup blocks outside clicks.
+  static const String _smartSearchPopupIOSCookieBridge = r'''
+(function () {
+  'use strict';
+  if (window.__AM_IOS_POPUP_COOKIE_GUARD__) return;
+  window.__AM_IOS_POPUP_COOKIE_GUARD__ = true;
+
+  var marker = 'am-ios-smart-popup-active';
+  var started = false;
+  var pending = false;
+
+  function visible(node) {
+    if (!node || node.hidden || node.getClientRects().length === 0) return false;
+    var css = window.getComputedStyle(node);
+    return css.display !== 'none' && css.visibility !== 'hidden' &&
+      css.visibility !== 'collapse';
+  }
+
+  function sync() {
+    pending = false;
+    var html = document.documentElement;
+    if (!html) return;
+    var popup = document.getElementById('am-smart-search-popup');
+    var layer = popup && popup.closest('.fancybox-container, .modal');
+    var active = !!(layer &&
+      layer.getAttribute('data-am-smart-suspended') !== '1' &&
+      visible(layer) && visible(popup));
+    if (html.classList.contains(marker) !== active) {
+      html.classList.toggle(marker, active);
+    }
+  }
+
+  function schedule() {
+    if (pending) return;
+    pending = true;
+    window.requestAnimationFrame(sync);
+  }
+
+  function start() {
+    var html = document.documentElement;
+    if (started || !html) return;
+    started = true;
+    var style = document.createElement('style');
+    style.id = 'am-ios-smart-popup-cookie-guard';
+    style.textContent = 'html.' + marker + ' .cc-window{' +
+      'visibility:hidden!important;pointer-events:none!important;}';
+    (document.head || html).appendChild(style);
+    var observer = new MutationObserver(schedule);
+    observer.observe(html, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden',
+        'data-am-smart-suspended']
+    });
+    window.addEventListener('resize', schedule);
+    window.addEventListener('orientationchange', schedule);
+    sync();
+  }
+
+  start();
+  document.addEventListener('DOMContentLoaded', start, { once: true });
+})();
+''';
+
   static const String _smartSearchPopupIOSScrollbarBridge = r'''
 (function () {
   'use strict';
@@ -284,11 +349,18 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   function update() {
-    bind(document.getElementById('am-smart-search-popup'));
+    var next = document.getElementById('am-smart-search-popup');
+    var layer = next && next.closest('.fancybox-container, .modal');
+    bind(layer ? next : null);
     if (!track || !popup) {
       if (track) { track.style.display = 'none'; }
       return;
     }
+    // Keep the indicator in the popup's stacking context. A page-level,
+    // maximum z-index would paint it over unrelated panels and notices.
+    var host = popup.closest('.fancybox-stage') || layer;
+    if (track.parentElement !== host) { host.appendChild(track); }
+
     var style = getComputedStyle(popup);
     var box = popup.getBoundingClientRect();
     var maxScroll = popup.scrollHeight - popup.clientHeight;
@@ -335,7 +407,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     track.id = 'am-ios-popup-scrollbar';
     track.setAttribute('aria-hidden', 'true');
     track.style.cssText = 'position:fixed;display:none;width:5px;pointer-events:none;' +
-      'z-index:2147483646;border-radius:3px;overflow:hidden;';
+      'z-index:2;border-radius:3px;overflow:hidden;';
     thumb = document.createElement('div');
     thumb.style.cssText = 'position:absolute;top:0;left:0;width:100%;' +
       'border-radius:3px;pointer-events:none;';
@@ -3009,526 +3081,555 @@ class _WebViewScreenState extends State<WebViewScreen>
           body: SafeArea(
             top: false,
             bottom: Platform.isIOS,
-            child: Stack(
-              fit: StackFit.expand,
+            child: Column(
               children: [
-                Column(
+                Expanded(
+                child: Stack(
+                  fit: StackFit.expand,
                   children: [
-                    SizedBox(
-                      height: fixedPrimaryAreaHeight,
-                      width: double.infinity,
-                      child: ColoredBox(
-                        color: nativeStatusBarColor,
-                      ),
-                    ),
-                    Expanded(
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          IgnorePointer(
-                            ignoring: _errorScreen != AppErrorScreen.none,
-                            child: Opacity(
-                              opacity: _errorScreen == AppErrorScreen.none
-                                  ? 1.0
-                                  : 0.0,
-                              child: InAppWebView(
-                                pullToRefreshController:
-                                    _pullToRefreshController,
-                                initialUrlRequest: URLRequest(
-                                  url: WebUri(siteUrl),
-                                ),
-                                initialSettings: _webViewSettings,
-                                initialUserScripts:
-                                    UnmodifiableListView<UserScript>([
-                                  if (Platform.isIOS)
-                                    UserScript(
-                                      source: _smartSearchPopupIOSScrollbarBridge,
-                                      injectionTime: UserScriptInjectionTime
-                                          .AT_DOCUMENT_START,
+                    Column(
+                      children: [
+                        SizedBox(
+                          height: fixedPrimaryAreaHeight,
+                          width: double.infinity,
+                          child: ColoredBox(
+                            color: nativeStatusBarColor,
+                          ),
+                        ),
+                        Expanded(
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              IgnorePointer(
+                                ignoring: _errorScreen != AppErrorScreen.none,
+                                child: Opacity(
+                                  opacity: _errorScreen == AppErrorScreen.none
+                                      ? 1.0
+                                      : 0.0,
+                                  child: InAppWebView(
+                                    pullToRefreshController:
+                                        _pullToRefreshController,
+                                    initialUrlRequest: URLRequest(
+                                      url: WebUri(siteUrl),
                                     ),
-                                  if (Platform.isIOS)
-                                    UserScript(
-                                      source: _smartSearchPopupIOSLayoutBridge,
-                                      injectionTime: UserScriptInjectionTime
-                                          .AT_DOCUMENT_START,
-                                    ),
-                                  UserScript(
-                                    source: _nativeThemeBridge,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                  UserScript(
-                                    source: _nativeVoiceRecognitionBridge,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                  UserScript(
-                                    source: _webPushSuppressionBridge,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                  UserScript(
-                                    source: _openInAppProtection,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                  UserScript(
-                                    source: _whatsAppShareHandler,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                  UserScript(
-                                    source: _externalLinkClickHandler,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                  UserScript(
-                                    source: _googleLoginClickHandler,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                  UserScript(
-                                    source: _emailRememberHandler,
-                                    injectionTime: UserScriptInjectionTime
-                                        .AT_DOCUMENT_START,
-                                  ),
-                                ]),
-                                onWebViewCreated: (controller) {
-                                  _webViewController = controller;
-                                  _openPendingOneSignalUrl();
-
-                                  controller.addJavaScriptHandler(
-                                    handlerName: 'nativeThemeChanged',
-                                    callback: (List<dynamic> arguments) async {
-                                      if (!isMainSiteUrl(
-                                          await controller.getUrl())) {
-                                        return null;
-                                      }
-                                      final String preference =
-                                          arguments.isNotEmpty
-                                              ? arguments[0].toString()
-                                              : 'system';
-                                      final String resolvedTheme =
-                                          arguments.length > 1
-                                              ? arguments[1].toString()
-                                              : 'light';
-                                      final bool explicitChange =
-                                          arguments.length > 2 &&
-                                              arguments[2] == true;
-
-                                      await _applyThemePreference(
-                                        preference: preference,
-                                        resolvedTheme: resolvedTheme,
-                                        explicitChange: explicitChange,
+                                    initialSettings: _webViewSettings,
+                                    initialUserScripts:
+                                        UnmodifiableListView<UserScript>([
+                                      if (Platform.isIOS)
+                                        UserScript(
+                                          source: _smartSearchPopupIOSCookieBridge,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                      if (Platform.isIOS)
+                                        UserScript(
+                                          source: _smartSearchPopupIOSScrollbarBridge,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                      if (Platform.isIOS)
+                                        UserScript(
+                                          source: _smartSearchPopupIOSLayoutBridge,
+                                          injectionTime: UserScriptInjectionTime
+                                              .AT_DOCUMENT_START,
+                                        ),
+                                      UserScript(
+                                        source: _nativeThemeBridge,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                      UserScript(
+                                        source: _nativeVoiceRecognitionBridge,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                      UserScript(
+                                        source: _webPushSuppressionBridge,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                      UserScript(
+                                        source: _openInAppProtection,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                      UserScript(
+                                        source: _whatsAppShareHandler,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                      UserScript(
+                                        source: _externalLinkClickHandler,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                      UserScript(
+                                        source: _googleLoginClickHandler,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                      UserScript(
+                                        source: _emailRememberHandler,
+                                        injectionTime: UserScriptInjectionTime
+                                            .AT_DOCUMENT_START,
+                                      ),
+                                    ]),
+                                    onWebViewCreated: (controller) {
+                                      _webViewController = controller;
+                                      _openPendingOneSignalUrl();
+    
+                                      controller.addJavaScriptHandler(
+                                        handlerName: 'nativeThemeChanged',
+                                        callback: (List<dynamic> arguments) async {
+                                          if (!isMainSiteUrl(
+                                              await controller.getUrl())) {
+                                            return null;
+                                          }
+                                          final String preference =
+                                              arguments.isNotEmpty
+                                                  ? arguments[0].toString()
+                                                  : 'system';
+                                          final String resolvedTheme =
+                                              arguments.length > 1
+                                                  ? arguments[1].toString()
+                                                  : 'light';
+                                          final bool explicitChange =
+                                              arguments.length > 2 &&
+                                                  arguments[2] == true;
+    
+                                          await _applyThemePreference(
+                                            preference: preference,
+                                            resolvedTheme: resolvedTheme,
+                                            explicitChange: explicitChange,
+                                          );
+                                          return true;
+                                        },
                                       );
-                                      return true;
-                                    },
-                                  );
-
-                                  controller.addJavaScriptHandler(
-                                    handlerName: 'openWhatsAppShare',
-                                    callback: (List<dynamic> arguments) async {
-                                      if (arguments.isEmpty) {
-                                        return false;
-                                      }
-
-                                      final Uri? uri = Uri.tryParse(
-                                        arguments.first.toString(),
+    
+                                      controller.addJavaScriptHandler(
+                                        handlerName: 'openWhatsAppShare',
+                                        callback: (List<dynamic> arguments) async {
+                                          if (arguments.isEmpty) {
+                                            return false;
+                                          }
+    
+                                          final Uri? uri = Uri.tryParse(
+                                            arguments.first.toString(),
+                                          );
+    
+                                          if (uri == null) {
+                                            return false;
+                                          }
+    
+                                          return _openExistingExternalLink(uri);
+                                        },
                                       );
-
-                                      if (uri == null) {
-                                        return false;
-                                      }
-
-                                      return _openExistingExternalLink(uri);
-                                    },
-                                  );
-
-                                  controller.addJavaScriptHandler(
-                                    handlerName: 'showGoogleLoginNotice',
-                                    callback: (List<dynamic> arguments) {
-                                      _showGoogleLoginNotice();
-                                      return null;
-                                    },
-                                  );
-
-                                  controller.addJavaScriptHandler(
-                                    handlerName: 'nativeVoiceSearch',
-                                    callback: (List<dynamic> arguments) async {
-                                      if (!isMainSiteUrl(
-                                          await controller.getUrl())) {
-                                        return null;
-                                      }
-                                      final String language =
-                                          arguments.isNotEmpty
-                                              ? arguments.first.toString()
-                                              : 'tr-TR';
-                                      return _startNativeVoiceRecognition(
-                                          language);
-                                    },
-                                  );
-
-                                  controller.addJavaScriptHandler(
-                                    handlerName: 'nativeVoiceSearchStop',
-                                    callback: (List<dynamic> arguments) async {
-                                      if (!isMainSiteUrl(
-                                          await controller.getUrl())) {
-                                        return null;
-                                      }
-                                      await _stopNativeVoiceRecognition();
-                                      return true;
-                                    },
-                                  );
-
-                                  controller.addJavaScriptHandler(
-                                    handlerName: 'openExternalLink',
-                                    callback: (List<dynamic> arguments) async {
-                                      if (arguments.length < 2) {
-                                        return false;
-                                      }
-
-                                      final String type =
-                                          arguments[0].toString();
-                                      final Uri? uri = Uri.tryParse(
-                                        arguments[1].toString(),
+    
+                                      controller.addJavaScriptHandler(
+                                        handlerName: 'showGoogleLoginNotice',
+                                        callback: (List<dynamic> arguments) {
+                                          _showGoogleLoginNotice();
+                                          return null;
+                                        },
                                       );
-
-                                      if (uri == null) {
+    
+                                      controller.addJavaScriptHandler(
+                                        handlerName: 'nativeVoiceSearch',
+                                        callback: (List<dynamic> arguments) async {
+                                          if (!isMainSiteUrl(
+                                              await controller.getUrl())) {
+                                            return null;
+                                          }
+                                          final String language =
+                                              arguments.isNotEmpty
+                                                  ? arguments.first.toString()
+                                                  : 'tr-TR';
+                                          return _startNativeVoiceRecognition(
+                                              language);
+                                        },
+                                      );
+    
+                                      controller.addJavaScriptHandler(
+                                        handlerName: 'nativeVoiceSearchStop',
+                                        callback: (List<dynamic> arguments) async {
+                                          if (!isMainSiteUrl(
+                                              await controller.getUrl())) {
+                                            return null;
+                                          }
+                                          await _stopNativeVoiceRecognition();
+                                          return true;
+                                        },
+                                      );
+    
+                                      controller.addJavaScriptHandler(
+                                        handlerName: 'openExternalLink',
+                                        callback: (List<dynamic> arguments) async {
+                                          if (arguments.length < 2) {
+                                            return false;
+                                          }
+    
+                                          final String type =
+                                              arguments[0].toString();
+                                          final Uri? uri = Uri.tryParse(
+                                            arguments[1].toString(),
+                                          );
+    
+                                          if (uri == null) {
+                                            return false;
+                                          }
+    
+                                          if (type == 'map') {
+                                            return _openMapNatively(uri);
+                                          }
+    
+                                          if (type == 'external') {
+                                            return _openExistingExternalLink(uri);
+                                          }
+    
+                                          if (type == 'browser') {
+                                            return _openInDefaultBrowser(uri);
+                                          }
+    
+                                          return false;
+                                        },
+                                      );
+                                    },
+                                    onPermissionRequest:
+                                        (controller, request) async {
+                                      if (!isMainSiteUrl(request.origin)) {
+                                        return PermissionResponse(
+                                          resources: [],
+                                          action: PermissionResponseAction.DENY,
+                                        );
+                                      }
+                                      final audio = request.resources
+                                          .where((resource) =>
+                                              resource ==
+                                              PermissionResourceType.MICROPHONE)
+                                          .toList();
+                                      final granted = audio.isNotEmpty &&
+                                          await _requestMicrophonePermission();
+                                      return PermissionResponse(
+                                        resources: granted ? audio : [],
+                                        action: granted
+                                            ? PermissionResponseAction.GRANT
+                                            : PermissionResponseAction.DENY,
+                                      );
+                                    },
+                                    onCreateWindow: (controller, action) async {
+                                      final uri = action.request.url;
+                                      if (uri == null ||
+                                          uri.toString() == 'about:blank') {
                                         return false;
                                       }
-
-                                      if (type == 'map') {
-                                        return _openMapNatively(uri);
+                                      if (_isFacebookAuthUrl(uri) ||
+                                          isMainSiteUrl(uri)) {
+                                        _rememberSiteUrl(await controller.getUrl());
+                                        await controller.loadUrl(
+                                            urlRequest: URLRequest(url: uri));
+                                      } else if (isCatalogUrl(uri)) {
+                                        await _openInDefaultBrowser(uri);
+                                      } else {
+                                        await _openExistingExternalLink(uri);
                                       }
-
-                                      if (type == 'external') {
-                                        return _openExistingExternalLink(uri);
-                                      }
-
-                                      if (type == 'browser') {
-                                        return _openInDefaultBrowser(uri);
-                                      }
-
                                       return false;
                                     },
-                                  );
-                                },
-                                onPermissionRequest:
-                                    (controller, request) async {
-                                  if (!isMainSiteUrl(request.origin)) {
-                                    return PermissionResponse(
-                                      resources: [],
-                                      action: PermissionResponseAction.DENY,
-                                    );
-                                  }
-                                  final audio = request.resources
-                                      .where((resource) =>
-                                          resource ==
-                                          PermissionResourceType.MICROPHONE)
-                                      .toList();
-                                  final granted = audio.isNotEmpty &&
-                                      await _requestMicrophonePermission();
-                                  return PermissionResponse(
-                                    resources: granted ? audio : [],
-                                    action: granted
-                                        ? PermissionResponseAction.GRANT
-                                        : PermissionResponseAction.DENY,
-                                  );
-                                },
-                                onCreateWindow: (controller, action) async {
-                                  final uri = action.request.url;
-                                  if (uri == null ||
-                                      uri.toString() == 'about:blank') {
-                                    return false;
-                                  }
-                                  if (_isFacebookAuthUrl(uri) ||
-                                      isMainSiteUrl(uri)) {
-                                    _rememberSiteUrl(await controller.getUrl());
-                                    await controller.loadUrl(
-                                        urlRequest: URLRequest(url: uri));
-                                  } else if (isCatalogUrl(uri)) {
-                                    await _openInDefaultBrowser(uri);
-                                  } else {
-                                    await _openExistingExternalLink(uri);
-                                  }
-                                  return false;
-                                },
-                                shouldOverrideUrlLoading: (
-                                  controller,
-                                  navigationAction,
-                                ) async {
-                                  final Uri? uri = navigationAction.request.url;
-
-                                  if (_isFacebookAuthUrl(uri)) {
-                                    final Uri? currentUrl =
-                                        await controller.getUrl();
-                                    _rememberSiteUrl(currentUrl);
-                                    return NavigationActionPolicy.ALLOW;
-                                  }
-
-                                  _rememberSiteUrl(uri);
-
-                                  if (_isWhatsAppUrl(uri)) {
-                                    await _openExistingExternalLink(uri!);
-                                    return NavigationActionPolicy.CANCEL;
-                                  }
-
-                                  if (isCatalogUrl(uri)) {
-                                    await _openInDefaultBrowser(uri!);
-                                    return NavigationActionPolicy.CANCEL;
-                                  }
-
-                                  return NavigationActionPolicy.ALLOW;
-                                },
-                                onLoadStart: (controller, url) {
-                                  _rememberSiteUrl(url);
-
-                                  if (_showSplash && isMainSiteUrl(url)) {
-                                    _initialRealPageLoadStarted = true;
-                                  }
-
-                                  _pageLoadGeneration++;
-                                  _finishTimer?.cancel();
-                                  _pageReadyStabilityTimer?.cancel();
-                                  _cancelPendingOneSignalInAppResume();
-
-                                  if (_errorScreen == AppErrorScreen.none) {
-                                    _currentLoadFailed = false;
-                                  }
-
-                                  if (!mounted) {
-                                    return;
-                                  }
-
-                                  setState(() {
-                                    _pageLoading = true;
-
-                                    if (!_showSplash) {
-                                      _siteProgress = 0.0;
-                                    }
-                                  });
-                                },
-                                onProgressChanged: (controller, progress) {
-                                  final int loadGeneration =
-                                      _pageLoadGeneration;
-
-                                  // flutter_inappwebview ilk acilista once about:blank
-                                  // bootstrap dokumanini tamamlayip %100 bildirebilir.
-                                  // Gercek site onLoadStart almadan bu sahte %100'u
-                                  // splash bitisi olarak kabul etmiyoruz.
-                                  final bool waitingForInitialRealPage =
-                                      _showSplash &&
-                                          !_initialRealPageLoadStarted;
-                                  final int effectiveProgress =
-                                      waitingForInitialRealPage
-                                          ? progress.clamp(0, 10).toInt()
-                                          : progress;
-
-                                  _updateMonotonicProgress(
-                                    rawProgress: effectiveProgress,
-                                    splash: _showSplash,
-                                  );
-
-                                  if (progress >= 100 &&
-                                      !waitingForInitialRealPage) {
-                                    _scheduleFinalizeAfterStableProgress100(
+                                    shouldOverrideUrlLoading: (
                                       controller,
-                                      loadGeneration,
-                                    );
-                                  }
-                                },
-                                onLoadStop: (controller, url) async {
-                                  _rememberSiteUrl(url);
-                                  await _pullToRefreshController
-                                      .endRefreshing();
-                                },
-                                onReceivedError:
-                                    (controller, request, error) async {
-                                  if (request.isForMainFrame == false ||
-                                      error.type ==
-                                          WebResourceErrorType.CANCELLED) {
-                                    return;
-                                  }
-                                  final url = request.url;
-                                  await _pullToRefreshController
-                                      .endRefreshing();
-
-                                  if (_isWhatsAppUrl(url)) {
-                                    _currentLoadFailed = false;
-
-                                    if (mounted) {
+                                      navigationAction,
+                                    ) async {
+                                      final Uri? uri = navigationAction.request.url;
+    
+                                      if (_isFacebookAuthUrl(uri)) {
+                                        final Uri? currentUrl =
+                                            await controller.getUrl();
+                                        _rememberSiteUrl(currentUrl);
+                                        return NavigationActionPolicy.ALLOW;
+                                      }
+    
+                                      _rememberSiteUrl(uri);
+    
+                                      if (_isWhatsAppUrl(uri)) {
+                                        await _openExistingExternalLink(uri!);
+                                        return NavigationActionPolicy.CANCEL;
+                                      }
+    
+                                      if (isCatalogUrl(uri)) {
+                                        await _openInDefaultBrowser(uri!);
+                                        return NavigationActionPolicy.CANCEL;
+                                      }
+    
+                                      return NavigationActionPolicy.ALLOW;
+                                    },
+                                    onLoadStart: (controller, url) {
+                                      _rememberSiteUrl(url);
+    
+                                      if (_showSplash && isMainSiteUrl(url)) {
+                                        _initialRealPageLoadStarted = true;
+                                      }
+    
+                                      _pageLoadGeneration++;
+                                      _finishTimer?.cancel();
+                                      _pageReadyStabilityTimer?.cancel();
+                                      _cancelPendingOneSignalInAppResume();
+    
+                                      if (_errorScreen == AppErrorScreen.none) {
+                                        _currentLoadFailed = false;
+                                      }
+    
+                                      if (!mounted) {
+                                        return;
+                                      }
+    
                                       setState(() {
-                                        _pageLoading = false;
-                                        _siteProgress = 0.0;
+                                        _pageLoading = true;
+    
+                                        if (!_showSplash) {
+                                          _siteProgress = 0.0;
+                                        }
                                       });
-                                    }
-
-                                    return;
-                                  }
-
-                                  await _handleWebViewError(
-                                    controller,
-                                    url,
-                                  );
-                                },
-                                onReceivedHttpError:
-                                    (controller, request, response) async {
-                                  if (request.isForMainFrame == false) {
-                                    return;
-                                  }
-                                  final url = request.url;
-                                  final statusCode = response.statusCode ?? 0;
-                                  await _pullToRefreshController
-                                      .endRefreshing();
-
-                                  if (_isWhatsAppUrl(url)) {
-                                    _currentLoadFailed = false;
-
-                                    if (mounted) {
-                                      setState(() {
-                                        _pageLoading = false;
-                                        _siteProgress = 0.0;
-                                      });
-                                    }
-
-                                    return;
-                                  }
-
-                                  if (statusCode >= 500) {
-                                    await _handleWebViewError(
-                                      controller,
-                                      url,
-                                    );
-                                  }
-                                },
-                              ),
-                            ),
-                          ),
-                          if (!_showSplash &&
-                              _pageLoading &&
-                              _errorScreen == AppErrorScreen.none)
-                            Positioned(
-                              top: 0,
-                              left: 0,
-                              right: 0,
-                              height: 4,
-                              child: IgnorePointer(
-                                child: LinearProgressIndicator(
-                                  value: _siteProgress,
-                                  backgroundColor: loadingTrack,
-                                  valueColor:
-                                      const AlwaysStoppedAnimation<Color>(
-                                    loadingOrange,
+                                    },
+                                    onProgressChanged: (controller, progress) {
+                                      final int loadGeneration =
+                                          _pageLoadGeneration;
+    
+                                      // flutter_inappwebview ilk acilista once about:blank
+                                      // bootstrap dokumanini tamamlayip %100 bildirebilir.
+                                      // Gercek site onLoadStart almadan bu sahte %100'u
+                                      // splash bitisi olarak kabul etmiyoruz.
+                                      final bool waitingForInitialRealPage =
+                                          _showSplash &&
+                                              !_initialRealPageLoadStarted;
+                                      final int effectiveProgress =
+                                          waitingForInitialRealPage
+                                              ? progress.clamp(0, 10).toInt()
+                                              : progress;
+    
+                                      _updateMonotonicProgress(
+                                        rawProgress: effectiveProgress,
+                                        splash: _showSplash,
+                                      );
+    
+                                      if (progress >= 100 &&
+                                          !waitingForInitialRealPage) {
+                                        _scheduleFinalizeAfterStableProgress100(
+                                          controller,
+                                          loadGeneration,
+                                        );
+                                      }
+                                    },
+                                    onLoadStop: (controller, url) async {
+                                      _rememberSiteUrl(url);
+                                      await _pullToRefreshController
+                                          .endRefreshing();
+                                    },
+                                    onReceivedError:
+                                        (controller, request, error) async {
+                                      if (request.isForMainFrame == false ||
+                                          error.type ==
+                                              WebResourceErrorType.CANCELLED) {
+                                        return;
+                                      }
+                                      final url = request.url;
+                                      await _pullToRefreshController
+                                          .endRefreshing();
+    
+                                      if (_isWhatsAppUrl(url)) {
+                                        _currentLoadFailed = false;
+    
+                                        if (mounted) {
+                                          setState(() {
+                                            _pageLoading = false;
+                                            _siteProgress = 0.0;
+                                          });
+                                        }
+    
+                                        return;
+                                      }
+    
+                                      await _handleWebViewError(
+                                        controller,
+                                        url,
+                                      );
+                                    },
+                                    onReceivedHttpError:
+                                        (controller, request, response) async {
+                                      if (request.isForMainFrame == false) {
+                                        return;
+                                      }
+                                      final url = request.url;
+                                      final statusCode = response.statusCode ?? 0;
+                                      await _pullToRefreshController
+                                          .endRefreshing();
+    
+                                      if (_isWhatsAppUrl(url)) {
+                                        _currentLoadFailed = false;
+    
+                                        if (mounted) {
+                                          setState(() {
+                                            _pageLoading = false;
+                                            _siteProgress = 0.0;
+                                          });
+                                        }
+    
+                                        return;
+                                      }
+    
+                                      if (statusCode >= 500) {
+                                        await _handleWebViewError(
+                                          controller,
+                                          url,
+                                        );
+                                      }
+                                    },
                                   ),
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                if (_errorScreen != AppErrorScreen.none)
-                  Positioned.fill(
-                    child: AppConnectionErrorScreen(
-                      type: _errorScreen,
-                      retryInProgress: _retryInProgress,
-                      onRetry: _retryCurrentPage,
-                      isDarkMode: _isDarkMode,
-                    ),
-                  ),
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 142,
-                  child: IgnorePointer(
-                    child: Center(
-                      child: AnimatedOpacity(
-                        opacity: _showWelcomeTooltip &&
-                                _errorScreen == AppErrorScreen.none
-                            ? 1.0
-                            : 0.0,
-                        duration: const Duration(milliseconds: 350),
-                        curve: Curves.easeInOut,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 22,
-                            vertical: 11,
-                          ),
-                          decoration: BoxDecoration(
-                            color: const Color.fromRGBO(13, 13, 13, 1),
-                            borderRadius: BorderRadius.circular(999),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.28),
-                                blurRadius: 20,
-                                offset: const Offset(0, 10),
-                              ),
+                              if (!_showSplash &&
+                                  _pageLoading &&
+                                  _errorScreen == AppErrorScreen.none)
+                                Positioned(
+                                  top: 0,
+                                  left: 0,
+                                  right: 0,
+                                  height: 4,
+                                  child: IgnorePointer(
+                                    child: LinearProgressIndicator(
+                                      value: _siteProgress,
+                                      backgroundColor: loadingTrack,
+                                      valueColor:
+                                          const AlwaysStoppedAnimation<Color>(
+                                        loadingOrange,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                             ],
                           ),
-                          child: const Text(
-                            'Hoş geldiniz. 🤗',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontFamily: 'Nunito',
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: Colors.white,
-                              letterSpacing: 1.0,
-                              height: 1.15,
+                        ),
+                      ],
+                    ),
+                    if (_errorScreen != AppErrorScreen.none)
+                      Positioned.fill(
+                        child: AppConnectionErrorScreen(
+                          type: _errorScreen,
+                          retryInProgress: _retryInProgress,
+                          onRetry: _retryCurrentPage,
+                          isDarkMode: _isDarkMode,
+                        ),
+                      ),
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 142,
+                      child: IgnorePointer(
+                        child: Center(
+                          child: AnimatedOpacity(
+                            opacity: _showWelcomeTooltip &&
+                                    _errorScreen == AppErrorScreen.none
+                                ? 1.0
+                                : 0.0,
+                            duration: const Duration(milliseconds: 350),
+                            curve: Curves.easeInOut,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 22,
+                                vertical: 11,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color.fromRGBO(13, 13, 13, 1),
+                                borderRadius: BorderRadius.circular(999),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.28),
+                                    blurRadius: 20,
+                                    offset: const Offset(0, 10),
+                                  ),
+                                ],
+                              ),
+                              child: const Text(
+                                'Hoş geldiniz. 🤗',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontFamily: 'Nunito',
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w500,
+                                  color: Colors.white,
+                                  letterSpacing: 1.0,
+                                  height: 1.15,
+                                ),
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-                if (kDebugMode && Platform.isIOS &&
-                    _simulatorTestsAvailable && !_showSplash)
-                  Positioned(
-                    top: fixedPrimaryAreaHeight + 8,
-                    right: 12,
-                    child: ElevatedButton.icon(
-                      onPressed: _simulatorNoInternetPreview
-                          ? () => unawaited(_endSimulatorNoInternet())
-                          : _showSimulatorNoInternet,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _isDarkMode ? appDarkCard : Colors.white,
-                        foregroundColor: appPrimary,
-                        elevation: 2,
-                      ),
-                      icon: const Icon(Icons.science_outlined, size: 18),
-                      label: Text(_simulatorNoInternetPreview
-                          ? 'Testi bitir'
-                          : 'No-internet testi'),
-                    ),
-                  ),
-                if (_showSplash)
-                  Positioned.fill(
-                    child: Container(
-                      color: splashBackground,
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.asset(
-                            splashImagePath,
-                            fit: BoxFit.contain,
-                            alignment: Alignment.center,
-                          ),
-                          Align(
-                            alignment: Alignment.bottomCenter,
-                            child: SizedBox(
-                              height: 4,
-                              child: LinearProgressIndicator(
-                                value: _splashProgress,
-                                backgroundColor: splashLoadingTrack,
-                                valueColor: const AlwaysStoppedAnimation<Color>(
-                                  loadingOrange,
+                    if (_showSplash)
+                      Positioned.fill(
+                        child: Container(
+                          color: splashBackground,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              Image.asset(
+                                splashImagePath,
+                                fit: BoxFit.contain,
+                                alignment: Alignment.center,
+                              ),
+                              Align(
+                                alignment: Alignment.bottomCenter,
+                                child: SizedBox(
+                                  height: 4,
+                                  child: LinearProgressIndicator(
+                                    value: _splashProgress,
+                                    backgroundColor: splashLoadingTrack,
+                                    valueColor: const AlwaysStoppedAnimation<Color>(
+                                      loadingOrange,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
-                        ],
+                        ),
+                      ),
+                  ],
+                ),
+                ),
+                if (kDebugMode &&
+                    Platform.isIOS &&
+                    _simulatorTestsAvailable &&
+                    !_showSplash)
+                  Material(
+                    color: nativeBackground,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          top: BorderSide(
+                            color: _isDarkMode
+                                ? appDarkBorder
+                                : const Color(0xFFE5E7EB),
+                          ),
+                        ),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: _simulatorNoInternetPreview
+                                ? () => unawaited(_endSimulatorNoInternet())
+                                : _showSimulatorNoInternet,
+                            style: TextButton.styleFrom(
+                              foregroundColor: appPrimary,
+                              minimumSize: const Size(0, 40),
+                            ),
+                            icon: const Icon(Icons.science_outlined, size: 18),
+                            label: Text(_simulatorNoInternetPreview
+                                ? 'Testi bitir'
+                                : 'No-internet testi'),
+                          ),
+                        ),
                       ),
                     ),
                   ),
