@@ -223,119 +223,93 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
-  // Limit the site's smart-popup guard to its own visible backdrop.
+  // Popup source owns its event guards; native code only sets cookie stacking.
   static const String _smartSearchPopupIOSCookieBridge = r'''
 (function () {
   'use strict';
-  if (window.__AM_IOS_POPUP_COOKIE_GUARD__) return;
-  window.__AM_IOS_POPUP_COOKIE_GUARD__ = true;
-
-  // Scope the correction to the site's named smart-popup listeners. Do not
-  // change event cancellation, cookies, or the popup's suspension state.
-  var originalAdd = document.addEventListener;
-  var originalRemove = document.removeEventListener;
-  var wrappers = new WeakMap();
-  var outsideEvents = ['pointerdown', 'pointerup', 'mousedown', 'mouseup',
-    'click', 'touchstart', 'touchend'];
-
-  function visiblePopup(root, layer) {
-    if (!root || !layer || !root.isConnected || !layer.isConnected) return false;
-    var box = root.getBoundingClientRect();
-    if (box.width <= 0 || box.height <= 0 || box.bottom <= 0 ||
-        box.top >= window.innerHeight) return false;
-    for (var node = root; node; node = node.parentElement) {
-      var style = getComputedStyle(node);
-      if (node.hidden || style.display === 'none' ||
-          style.visibility === 'hidden' || style.visibility === 'collapse' ||
-          style.opacity === '0' ||
-          node.classList.contains('fancybox-is-closing')) return false;
-    }
-    return true;
-  }
-
-  document.addEventListener = function (type, listener, options) {
-    var outside = typeof listener === 'function' &&
-      listener.name === 'blockSmartPopupOutsideClose' &&
-      outsideEvents.indexOf(type) !== -1;
-    var escape = typeof listener === 'function' &&
-      listener.name === 'blockSmartPopupEscape' && type === 'keydown';
-    if (!outside && !escape) {
-      return originalAdd.call(this, type, listener, options);
-    }
-    var byType = wrappers.get(listener);
-    if (!byType) { byType = {}; wrappers.set(listener, byType); }
-    if (!byType[type]) {
-      byType[type] = function (event) {
-        var root = document.getElementById('am-smart-search-popup');
-        var idea = root && root.closest('#idea-popup');
-        var layer = idea && idea.closest('.fancybox-container');
-        if (!visiblePopup(root, layer)) return;
-        // Protect only the popup's own backdrop. Header/category navigation,
-        // shipping and cookie controls outside this container keep their events.
-        if (outside && !layer.contains(event.target)) return;
-        return listener.call(this, event);
-      };
-    }
-    return originalAdd.call(this, type, byType[type], options);
-  };
-
-  document.removeEventListener = function (type, listener, options) {
-    var byType = typeof listener === 'function' && wrappers.get(listener);
-    return originalRemove.call(this, type,
-      byType && byType[type] ? byType[type] : listener, options);
-  };
-
   function installStyle() {
-    var html = document.documentElement;
-    if (!html || document.getElementById('am-ios-smart-popup-cookie-guard')) return;
+    if (document.getElementById('am-ios-smart-popup-cookie-guard')) return;
+    var parent = document.head || document.documentElement;
+    if (!parent) return;
     var style = document.createElement('style');
     style.id = 'am-ios-smart-popup-cookie-guard';
-    // Preserve the cookie library's own visibility and pointer-event rules,
-    // including cc-invisible after the user's dismissal.
-    style.textContent = '.cc-window{z-index:2147483647!important;}' +
-      '.fancybox-container[data-am-ios-smart-popup-inactive="true"]{' +
-      'pointer-events:none!important;}';
-    (document.head || html).appendChild(style);
-  }
-  // A hidden smart popup must not leave its full-screen host intercepting taps.
-  // Scope this to its own Fancybox host; unrelated dialogs are untouched.
-  function syncHiddenPopupHost() {
-    var root = document.getElementById('am-smart-search-popup');
-    var idea = root && root.closest('#idea-popup');
-    var layer = idea && idea.closest('.fancybox-container');
-    document.querySelectorAll('[data-am-ios-smart-popup-inactive]').forEach(function (old) {
-      if (old !== layer) old.removeAttribute('data-am-ios-smart-popup-inactive');
-    });
-    if (!layer) return;
-    if (visiblePopup(root, layer)) {
-      layer.removeAttribute('data-am-ios-smart-popup-inactive');
-    } else {
-      layer.setAttribute('data-am-ios-smart-popup-inactive', 'true');
-    }
-  }
-  var hostUpdatePending = false;
-  function scheduleHostUpdate() {
-    if (hostUpdatePending) return;
-    hostUpdatePending = true;
-    (window.requestAnimationFrame || function (callback) { return setTimeout(callback, 0); })(function () {
-      hostUpdatePending = false;
-      syncHiddenPopupHost();
-    });
+    style.textContent = '.cc-window{z-index:2147483647!important;}';
+    parent.appendChild(style);
   }
   installStyle();
-  syncHiddenPopupHost();
-  if (document.documentElement) {
-    new MutationObserver(scheduleHostUpdate).observe(document.documentElement, {
-      childList: true, subtree: true, attributes: true,
-      attributeFilter: ['class', 'style', 'hidden']
-    });
+  document.addEventListener('DOMContentLoaded', installStyle, { once: true });
+})();
+''';
+
+  static const String _categoryNavigationBridge = r'''
+(function () {
+  'use strict';
+  if (window.__AM_IOS_CATEGORY_NAVIGATION__) return;
+  window.__AM_IOS_CATEGORY_NAVIGATION__ = true;
+  var pendingUrl = '';
+  var pendingUntil = 0;
+
+  function categoryUrl(anchor) {
+    if (!anchor || anchor.hasAttribute('download') ||
+        anchor.getAttribute('aria-disabled') === 'true' || anchor.closest('[inert]')) return null;
+    var raw = (anchor.getAttribute('href') || '').trim();
+    if (!raw || /^(?:javascript:|#)/i.test(raw)) return null;
+    try {
+      var url = new URL(raw, document.baseURI);
+      var hosts = window.__AM_CATEGORY_HOSTS__ || [];
+      if (!/^https?:$/.test(url.protocol) || url.username || url.password ||
+          hosts.indexOf(url.hostname.toLowerCase()) < 0 ||
+          !/^\/kategori\/[^/]+/.test(url.pathname)) return null;
+      // Mirror the live theme's managed-category stock preference before
+      // bypassing its delegated click handler. Keep existing query values.
+      function knownCategory(items) {
+        if (!Array.isArray(items)) return false;
+        return items.some(function (item) {
+          var path = '';
+          try { path = new URL(item.url || '', document.baseURI).pathname.replace(/\/+$/, ''); }
+          catch (_) {}
+          return path === url.pathname.replace(/\/+$/, '') || knownCategory(item.subCategories);
+        });
+      }
+      var categories = window.navigationMenu && window.navigationMenu.categories;
+      var showAll = false;
+      try { showAll = window.sessionStorage.getItem('amCategoryShowOutOfStock') === '1'; }
+      catch (_) {}
+      if (knownCategory(categories) && !showAll && !url.searchParams.has('stoktakiler')) {
+        url.searchParams.set('stoktakiler', '1');
+      }
+      return url.href;
+    } catch (_) { return null; }
   }
-  document.addEventListener('DOMContentLoaded', function () {
-    installStyle(); syncHiddenPopupHost();
-  }, { once: true });
-  document.addEventListener('transitionend', scheduleHostUpdate, true);
-  document.addEventListener('animationend', scheduleHostUpdate, true);
-  window.addEventListener('resize', scheduleHostUpdate);
+
+  // Only genuine category-page anchors are routed natively. Menu buttons,
+  // javascript toggles, product links, cookie/shipping controls keep site events.
+  window.addEventListener('click', function (event) {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey ||
+        event.shiftKey || (typeof event.button === 'number' && event.button !== 0)) return;
+    var target = event.target;
+    if (target && target.nodeType !== 1) target = target.parentElement;
+    var anchor = target && target.closest ? target.closest('a[href]') : null;
+    var url = categoryUrl(anchor);
+    var bridge = window.flutter_inappwebview;
+    if (!url || !bridge || typeof bridge.callHandler !== 'function') return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    var now = Date.now();
+    if (url === pendingUrl && now < pendingUntil) return;
+    pendingUrl = url;
+    pendingUntil = now + 700;
+    function fallback() {
+      pendingUrl = '';
+      // Preserve ordinary browser navigation if a native handler rejects/fails.
+      window.location.assign(url);
+    }
+    try {
+      Promise.resolve(bridge.callHandler('navigateCategoryPage', url)).then(function (handled) {
+        if (handled !== true) fallback();
+      }, fallback);
+    } catch (_) { fallback(); }
+  }, true);
 })();
 ''';
 
@@ -3159,6 +3133,14 @@ class _WebViewScreenState extends State<WebViewScreen>
                                         if (Platform.isIOS)
                                           UserScript(
                                             source:
+                                                'window.__AM_CATEGORY_HOSTS__ = ${jsonEncode(<String>[Uri.parse(siteUrl).host, Uri.parse(siteUrl).host.startsWith("www.") ? Uri.parse(siteUrl).host.substring(4) : "www.${Uri.parse(siteUrl).host}"])};\n$_categoryNavigationBridge',
+                                            injectionTime:
+                                                UserScriptInjectionTime
+                                                    .AT_DOCUMENT_START,
+                                          ),
+                                        if (Platform.isIOS)
+                                          UserScript(
+                                            source:
                                                 _smartSearchPopupIOSCookieBridge,
                                             injectionTime:
                                                 UserScriptInjectionTime
@@ -3224,6 +3206,32 @@ class _WebViewScreenState extends State<WebViewScreen>
                                       onWebViewCreated: (controller) {
                                         _webViewController = controller;
                                         _openPendingOneSignalUrl();
+
+                                        controller.addJavaScriptHandler(
+                                          handlerName: 'navigateCategoryPage',
+                                          callback:
+                                              (List<dynamic> arguments) async {
+                                                if (arguments.length != 1 ||
+                                                    !isMainSiteUrl(
+                                                      await controller.getUrl(),
+                                                    )) {
+                                                  return false;
+                                                }
+                                                final Uri? uri = Uri.tryParse(
+                                                  arguments.first.toString(),
+                                                );
+                                                if (!isCategoryPageUrl(uri)) {
+                                                  return false;
+                                                }
+                                                _rememberSiteUrl(uri);
+                                                await controller.loadUrl(
+                                                  urlRequest: URLRequest(
+                                                    url: WebUri.uri(uri!),
+                                                  ),
+                                                );
+                                                return true;
+                                              },
+                                        );
 
                                         controller.addJavaScriptHandler(
                                           handlerName: 'nativeThemeChanged',

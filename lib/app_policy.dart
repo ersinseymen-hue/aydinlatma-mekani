@@ -17,3 +17,10 @@ bool isCatalogUrl(Uri? uri) {
       uri.scheme.toLowerCase() == 'https' &&
       uri.host.toLowerCase() == 'katalog.aydinlatmamekani.com';
 }
+
+bool isCategoryPageUrl(Uri? uri) {
+  return isMainSiteUrl(uri) &&
+      uri!.userInfo.isEmpty &&
+      uri.path.startsWith('/kategori/') &&
+      uri.path.length > '/kategori/'.length;
+}
