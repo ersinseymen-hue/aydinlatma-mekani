@@ -49,7 +49,18 @@ import Speech
     case "getThemePreference": result(themePreference)
     case "getSystemDarkMode": result(systemDarkMode)
     case "getStartupTheme": result(resolvedTheme)
-    case "getStartupThemeState": result(["preference": themePreference, "resolved": resolvedTheme])
+    case "getStartupThemeState":
+      #if targetEnvironment(simulator)
+      let isSimulator = true
+      #else
+      let isSimulator = false
+      #endif
+      let state: [String: Any] = [
+        "preference": themePreference, "resolved": resolvedTheme,
+        "iosMajorVersion": ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+        "isSimulator": isSimulator
+      ]
+      result(state)
     case "setThemePreference":
       if (args["explicit"] as? Bool) == true {
         let preference = (args["preference"] as? String) ?? "system"
@@ -94,10 +105,21 @@ import Speech
     cover.backgroundColor = dark
       ? UIColor(red: 18/255, green: 22/255, blue: 28/255, alpha: 1) : .white
     let image = UIImageView(image: UIImage(named: dark ? "LaunchDark" : "LaunchLight"))
-    image.frame = cover.bounds
-    image.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+    image.translatesAutoresizingMaskIntoConstraints = false
     image.contentMode = .scaleAspectFit
     cover.addSubview(image)
+    let safe = cover.safeAreaLayoutGuide
+    let preferredWidth = image.widthAnchor.constraint(equalToConstant: 420)
+    let preferredHeight = image.heightAnchor.constraint(equalToConstant: 168)
+    preferredWidth.priority = .defaultHigh
+    preferredHeight.priority = .defaultHigh
+    NSLayoutConstraint.activate([
+      image.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
+      image.centerYAnchor.constraint(equalTo: safe.centerYAnchor),
+      image.widthAnchor.constraint(lessThanOrEqualTo: safe.widthAnchor, constant: -48),
+      image.heightAnchor.constraint(lessThanOrEqualTo: safe.heightAnchor, constant: -48),
+      preferredWidth, preferredHeight
+    ])
     controller.view.addSubview(cover)
     controller.setFlutterViewDidRenderCallback { [weak cover] in cover?.removeFromSuperview() }
   }
