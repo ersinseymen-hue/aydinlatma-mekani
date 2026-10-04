@@ -100,26 +100,12 @@ import Speech
   }
   private func showStartupCover(on controller: FlutterViewController) {
     let dark = resolvedTheme == "dark"
-    let cover = UIView(frame: controller.view.bounds)
+    let cover = AydinlatmaStartupCover(
+      frame: controller.view.bounds,
+      logo: UIImage(named: dark ? "LaunchDark" : "LaunchLight"),
+      dark: dark
+    )
     cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-    cover.backgroundColor = dark
-      ? UIColor(red: 18/255, green: 22/255, blue: 28/255, alpha: 1) : .white
-    let image = UIImageView(image: UIImage(named: dark ? "LaunchDark" : "LaunchLight"))
-    image.translatesAutoresizingMaskIntoConstraints = false
-    image.contentMode = .scaleAspectFit
-    cover.addSubview(image)
-    let safe = cover.safeAreaLayoutGuide
-    let preferredWidth = image.widthAnchor.constraint(equalToConstant: 420)
-    let preferredHeight = image.heightAnchor.constraint(equalToConstant: 168)
-    preferredWidth.priority = .defaultHigh
-    preferredHeight.priority = .defaultHigh
-    NSLayoutConstraint.activate([
-      image.centerXAnchor.constraint(equalTo: safe.centerXAnchor),
-      image.centerYAnchor.constraint(equalTo: safe.centerYAnchor),
-      image.widthAnchor.constraint(lessThanOrEqualTo: safe.widthAnchor, constant: -48),
-      image.heightAnchor.constraint(lessThanOrEqualTo: safe.heightAnchor, constant: -48),
-      preferredWidth, preferredHeight
-    ])
     controller.view.addSubview(cover)
     controller.setFlutterViewDidRenderCallback { [weak cover] in cover?.removeFromSuperview() }
   }
@@ -225,5 +211,31 @@ import Speech
   override func applicationDidEnterBackground(_ application: UIApplication) {
     finishVoiceRecognition(nil)
     super.applicationDidEnterBackground(application)
+  }
+}
+
+// Match Flutter's SafeArea + 24 px padding and 420 x 168 logo bounds exactly.
+// Explicit frames avoid UIImageView intrinsic-size/constraint-priority jumps.
+private final class AydinlatmaStartupCover: UIView {
+  private let logoView: UIImageView
+
+  init(frame: CGRect, logo: UIImage?, dark: Bool) {
+    logoView = UIImageView(image: logo)
+    super.init(frame: frame)
+    backgroundColor = dark
+      ? UIColor(red: 18/255, green: 22/255, blue: 28/255, alpha: 1) : .white
+    logoView.contentMode = .scaleAspectFit
+    addSubview(logoView)
+  }
+
+  required init?(coder: NSCoder) { fatalError("Programmatic startup cover") }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    let safe = bounds.inset(by: safeAreaInsets)
+    let width = max(0, min(420, safe.width - 48))
+    let height = max(0, min(168, safe.height - 48))
+    logoView.frame = CGRect(x: safe.midX - width/2, y: safe.midY - height/2,
+                            width: width, height: height)
   }
 }
