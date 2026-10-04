@@ -15,16 +15,17 @@ import 'app_policy.dart';
 const String siteUrl = 'https://aydinlatmamekani.com';
 const String oneSignalAppId = 'e1ff25e0-3d28-493a-a742-19fb9e305e87';
 
-const Color appPrimary = Color(0xFF00A2E8);
-const Color loadingOrange = Color.fromRGBO(240, 147, 43, 1);
+const Color appPrimary = Color.fromRGBO(240, 147, 43, 1);
+const Color splashLoadingOrange = appPrimary;
+const Color siteLoadingGreen = Color.fromRGBO(34, 177, 76, 1);
 const Color loadingTrack = Color.fromRGBO(220, 220, 220, 1);
 const Color appDarkBackground = Color(0xFF12161C);
 const Color appDarkCard = Color(0xFF191E25);
 const Color appDarkSurface = Color(0xFF20262F);
-const Color appDarkBorder = Color(0xFF1B384A);
-const Color appDarkTextPrimary = Color(0xFFDDF2FC);
+const Color appDarkBorder = Color(0xFF433C35);
+const Color appDarkTextPrimary = Color(0xFFFCEDDC);
 const MethodChannel appNativeChannel =
-    MethodChannel('com.lightstore.aydinlatmamekani/browser');
+    MethodChannel('com.lightstore.onlineavm/browser');
 
 enum AppErrorScreen {
   none,
@@ -49,7 +50,7 @@ Future<void> main() async {
       await _resolveStartupThemeBeforeRunApp();
 
   runApp(
-    AydinlatmaMekaniApp(
+    OnlineAvmApp(
       initialThemePreference: startupTheme.preference,
       initialDarkMode: startupTheme.isDarkMode,
     ),
@@ -145,8 +146,8 @@ Future<void> _initializeOneSignal() async {
   }
 }
 
-class AydinlatmaMekaniApp extends StatelessWidget {
-  const AydinlatmaMekaniApp({
+class OnlineAvmApp extends StatelessWidget {
+  const OnlineAvmApp({
     super.key,
     required this.initialThemePreference,
     required this.initialDarkMode,
@@ -159,7 +160,7 @@ class AydinlatmaMekaniApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Aydınlatma Mekânı',
+      title: 'onlineavm',
       theme: ThemeData(useMaterial3: false),
       darkTheme: ThemeData.dark(useMaterial3: false),
       themeMode: initialDarkMode ? ThemeMode.dark : ThemeMode.light,
@@ -449,11 +450,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   if ((!isIOS && (window.SpeechRecognition || window.webkitSpeechRecognition)) ||
-      window.__AYDINLATMA_NATIVE_SPEECH__) {
+      window.__ONLINEAVM_NATIVE_SPEECH__) {
     return;
   }
 
-  window.__AYDINLATMA_NATIVE_SPEECH__ = true;
+  window.__ONLINEAVM_NATIVE_SPEECH__ = true;
 
   function NativeSpeechRecognition() {
     this.continuous = false;
@@ -1181,12 +1182,12 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__AYDINLATMA_MEKANI_APP_PROTECTION__) {
+  if (window.__ONLINE_AVM_APP_PROTECTION__) {
     return;
   }
 
-  window.__AYDINLATMA_MEKANI_APP_PROTECTION__ = true;
-  window.__AYDINLATMA_MEKANI_APP__ = true;
+  window.__ONLINE_AVM_APP_PROTECTION__ = true;
+  window.__ONLINE_AVM_APP__ = true;
 
   function setDismissCookie() {
     document.cookie =
@@ -1194,12 +1195,12 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   function installBlockingStyle() {
-    if (document.getElementById('aydinlatma-app-block-style')) {
+    if (document.getElementById('onlineavm-app-block-style')) {
       return;
     }
 
     var style = document.createElement('style');
-    style.id = 'aydinlatma-app-block-style';
+    style.id = 'onlineavm-app-block-style';
     style.textContent =
       '#mobarka,#mobiluygdiv{' +
       'display:none!important;' +
@@ -1335,8 +1336,8 @@ class _WebViewScreenState extends State<WebViewScreen>
       subtree: true
     });
 
-    window.__AYDINLATMA_MEKANI_APP_OBSERVER__ = observer;
-    window.__AYDINLATMA_PREPARE_PAGE__ = preparePage;
+    window.__ONLINE_AVM_APP_OBSERVER__ = observer;
+    window.__ONLINEAVM_PREPARE_PAGE__ = preparePage;
   }
 
   installObserver();
@@ -1347,13 +1348,13 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__AYDINLATMA_EMAIL_REMEMBER__) {
+  if (window.__ONLINEAVM_EMAIL_REMEMBER__) {
     return;
   }
 
-  window.__AYDINLATMA_EMAIL_REMEMBER__ = true;
+  window.__ONLINEAVM_EMAIL_REMEMBER__ = true;
 
-  var storageKey = 'aydinlatma_remembered_email';
+  var storageKey = 'onlineavm_remembered_email';
 
   function normalizeText(value) {
     return String(value || '')
@@ -1712,11 +1713,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__AYDINLATMA_GOOGLE_LOGIN_NOTICE__) {
+  if (window.__ONLINEAVM_GOOGLE_LOGIN_NOTICE__) {
     return;
   }
 
-  window.__AYDINLATMA_GOOGLE_LOGIN_NOTICE__ = true;
+  window.__ONLINEAVM_GOOGLE_LOGIN_NOTICE__ = true;
 
   function normalize(value) {
     return String(value || '')
@@ -1810,11 +1811,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__AYDINLATMA_WHATSAPP_SHARE_HANDLER__) {
+  if (window.__ONLINEAVM_WHATSAPP_SHARE_HANDLER__) {
     return;
   }
 
-  window.__AYDINLATMA_WHATSAPP_SHARE_HANDLER__ = true;
+  window.__ONLINEAVM_WHATSAPP_SHARE_HANDLER__ = true;
 
   function isWhatsAppShareUrl(value) {
     try {
@@ -1896,11 +1897,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__AYDINLATMA_EXTERNAL_LINK_HANDLER__) {
+  if (window.__ONLINEAVM_EXTERNAL_LINK_HANDLER__) {
     return;
   }
 
-  window.__AYDINLATMA_EXTERNAL_LINK_HANDLER__ = true;
+  window.__ONLINEAVM_EXTERNAL_LINK_HANDLER__ = true;
 
   function findAnchor(start) {
     var element = start;
@@ -2848,8 +2849,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     await controller.evaluateJavascript(
       source: '''
         (function () {
-          if (typeof window.__AYDINLATMA_PREPARE_PAGE__ === 'function') {
-            return window.__AYDINLATMA_PREPARE_PAGE__();
+          if (typeof window.__ONLINEAVM_PREPARE_PAGE__ === 'function') {
+            return window.__ONLINEAVM_PREPARE_PAGE__();
           }
 
           return true;
@@ -2921,7 +2922,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(999),
           ),
           title: const Text(
             'Google ile Giriş',
@@ -3499,7 +3500,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                                       backgroundColor: loadingTrack,
                                       valueColor:
                                           const AlwaysStoppedAnimation<Color>(
-                                        loadingOrange,
+                                        siteLoadingGreen,
                                       ),
                                     ),
                                   ),
@@ -3538,7 +3539,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                               ),
                               decoration: BoxDecoration(
                                 color: const Color.fromRGBO(13, 13, 13, 1),
-                                borderRadius: BorderRadius.circular(999),
+                                borderRadius: BorderRadius.circular(100),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black.withValues(alpha: 0.28),
@@ -3584,7 +3585,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                                     value: _splashProgress,
                                     backgroundColor: splashLoadingTrack,
                                     valueColor: const AlwaysStoppedAnimation<Color>(
-                                      loadingOrange,
+                                      splashLoadingOrange,
                                     ),
                                   ),
                                 ),
@@ -3663,8 +3664,8 @@ class AppConnectionErrorScreen extends StatelessWidget {
             ? 'assets/images/no_internet_dark.webp'
             : 'assets/images/no_internet_light.webp')
         : (isDarkMode
-            ? 'assets/images/server_error_dark.webp'
-            : 'assets/images/server_error_light.webp');
+            ? 'assets/images/server-error-dark.webp'
+            : 'assets/images/server-error-light.webp');
 
     final Color backgroundColor = isDarkMode ? appDarkBackground : Colors.white;
 
@@ -3711,7 +3712,7 @@ class AppConnectionErrorScreen extends StatelessWidget {
                           width: 2,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(999),
                         ),
                       ),
                       onPressed: retryInProgress
@@ -3757,7 +3758,7 @@ class ExitDialog extends StatelessWidget {
         ? appDarkTextPrimary
         : const Color.fromRGBO(100, 105, 118, 1);
     final Color ringColor =
-        isDarkMode ? appDarkBorder : const Color.fromRGBO(221, 242, 252, 1);
+        isDarkMode ? appDarkBorder : const Color.fromRGBO(252, 237, 220, 1);
     final Color dividerColor = isDarkMode
         ? const Color(0xFF2A3440)
         : const Color.fromRGBO(229, 231, 235, 1);
@@ -3839,12 +3840,12 @@ class ExitDialog extends StatelessWidget {
                   width: 92,
                   height: 7,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(999),
+                    borderRadius: BorderRadius.circular(100),
                     gradient: const LinearGradient(
                       colors: [
-                        Color.fromRGBO(126, 221, 241, 1),
+                        Color.fromRGBO(252, 237, 220, 1),
                         appPrimary,
-                        Color.fromRGBO(2, 139, 216, 1),
+                        Color.fromRGBO(217, 133, 39, 1),
                       ],
                     ),
                   ),
@@ -3879,7 +3880,7 @@ class ExitDialog extends StatelessWidget {
                             elevation: isDarkMode ? 0 : 2,
                             shadowColor: Colors.black.withValues(alpha: 0.12),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(999),
                             ),
                           ),
                           onPressed: () => Navigator.of(context).pop(false),
@@ -3922,7 +3923,7 @@ class ExitDialog extends StatelessWidget {
                             foregroundColor: exitForeground,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(999),
                             ),
                           ),
                           onPressed: () => Navigator.of(context).pop(true),
