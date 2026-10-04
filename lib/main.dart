@@ -396,30 +396,32 @@ class _WebViewScreenState extends State<WebViewScreen>
 
     // Overlay the existing scrolling element without resizing it or adding
     // another scroll container. Pointer events continue to reach the popup.
-    var top = Math.max(0, box.top) + 8;
+    var top = Math.max(0, box.top) + 12;
     var close = popup.querySelector('.am-smart-search__close');
     if (close) {
       var closeBox = close.getBoundingClientRect();
-      if (closeBox.width > 0 && closeBox.right >= box.right - 8) {
-        top = Math.max(top, closeBox.bottom + 4);
+      if (closeBox.width > 0 && closeBox.right >= box.right - 14) {
+        top = Math.max(top, closeBox.bottom + 6);
       }
     }
     var hit = document.elementFromPoint &&
-      document.elementFromPoint(box.right - 6, top + 1);
+      document.elementFromPoint(box.right - 10, top + 1);
     if (hit && !popup.contains(hit) &&
         !(hit.closest && hit.closest('.cc-window'))) {
       track.style.display = 'none';
       return;
     }
-    var bottom = Math.min(window.innerHeight, box.bottom) - 8;
+    var bottom = Math.min(window.innerHeight, box.bottom) - 12;
     var height = bottom - top;
     if (height <= 0) { track.style.display = 'none'; return; }
     var size = Math.min(height, Math.max(24,
       height * popup.clientHeight / popup.scrollHeight));
     var progress = Math.max(0, Math.min(1, popup.scrollTop / maxScroll));
-    var color = style.getPropertyValue('--am-blue').trim() || '#00A2E8';
+    var color = style.getPropertyValue('--am-scrollbar-color').trim() ||
+      style.getPropertyValue('--am-blue').trim() ||
+      style.getPropertyValue('--am-accent-dark').trim() || '#00A2E8';
     track.style.top = top + 'px';
-    track.style.left = (box.right - 8) + 'px';
+    track.style.left = (box.right - 12) + 'px';
     track.style.height = height + 'px';
     track.style.backgroundColor = 'color-mix(in srgb, ' + color + ' 18%, transparent)';
     thumb.style.backgroundColor = color;
@@ -433,7 +435,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     track = document.createElement('div');
     track.id = 'am-ios-popup-scrollbar';
     track.setAttribute('aria-hidden', 'true');
-    track.style.cssText = 'position:fixed;display:none;width:5px;pointer-events:none;' +
+    track.style.cssText = 'position:fixed;display:none;width:4px;pointer-events:none;' +
       'z-index:1;border-radius:3px;overflow:hidden;';
     thumb = document.createElement('div');
     thumb.style.cssText = 'position:absolute;top:0;left:0;width:100%;' +
@@ -3668,8 +3670,7 @@ class _WebViewScreenState extends State<WebViewScreen>
 // Cropped assets are sized independently of the screen's height. Short
 // viewports can scroll instead of shrinking a complete portrait composition.
 class _CroppedSplashLogo extends StatelessWidget {
-  const _CroppedSplashLogo({Key? key, required this.assetPath})
-      : super(key: key);
+  const _CroppedSplashLogo({super.key, required this.assetPath});
 
   final String assetPath;
 
@@ -3706,12 +3707,12 @@ class _CroppedSplashLogo extends StatelessWidget {
 
 class _CroppedErrorArtwork extends StatelessWidget {
   const _CroppedErrorArtwork({
-    Key? key,
+    super.key,
     required this.logoPath,
     required this.illustrationPath,
     required this.illustrationLabel,
     required this.retryButton,
-  }) : super(key: key);
+  });
 
   final String logoPath;
   final String illustrationPath;
@@ -3751,34 +3752,17 @@ class _CroppedErrorArtwork extends StatelessWidget {
           filterQuality: FilterQuality.high,
           semanticLabel: illustrationLabel,
         );
-        final Widget content = horizontalLayout
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Expanded(child: Center(child: logo)),
-                  const SizedBox(width: 32),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        illustration,
-                        const SizedBox(height: 14),
-                        retryButton,
-                      ],
-                    ),
-                  ),
-                ],
-              )
-            : Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  logo,
-                  const SizedBox(height: 28),
-                  illustration,
-                  const SizedBox(height: 24),
-                  retryButton,
-                ],
-              );
+        // Keep the logo above the illustration in every orientation.
+        final Widget content = Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            logo,
+            SizedBox(height: horizontalLayout ? 12 : 28),
+            illustration,
+            SizedBox(height: horizontalLayout ? 14 : 24),
+            retryButton,
+          ],
+        );
         return SingleChildScrollView(
           padding: EdgeInsets.symmetric(
             horizontal: 24,
