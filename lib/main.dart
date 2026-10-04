@@ -15,17 +15,16 @@ import 'app_policy.dart';
 const String siteUrl = 'https://aydinlatmamekani.com';
 const String oneSignalAppId = 'e1ff25e0-3d28-493a-a742-19fb9e305e87';
 
-const Color appPrimary = Color.fromRGBO(240, 147, 43, 1);
-const Color splashLoadingOrange = appPrimary;
-const Color siteLoadingGreen = Color.fromRGBO(34, 177, 76, 1);
+const Color appPrimary = Color(0xFF00A2E8);
+const Color loadingOrange = Color.fromRGBO(240, 147, 43, 1);
 const Color loadingTrack = Color.fromRGBO(220, 220, 220, 1);
 const Color appDarkBackground = Color(0xFF12161C);
 const Color appDarkCard = Color(0xFF191E25);
 const Color appDarkSurface = Color(0xFF20262F);
-const Color appDarkBorder = Color(0xFF433C35);
-const Color appDarkTextPrimary = Color(0xFFFCEDDC);
+const Color appDarkBorder = Color(0xFF1B384A);
+const Color appDarkTextPrimary = Color(0xFFDDF2FC);
 const MethodChannel appNativeChannel =
-    MethodChannel('com.lightstore.onlineavm/browser');
+    MethodChannel('com.lightstore.aydinlatmamekani/browser');
 
 enum AppErrorScreen {
   none,
@@ -50,7 +49,7 @@ Future<void> main() async {
       await _resolveStartupThemeBeforeRunApp();
 
   runApp(
-    OnlineAvmApp(
+    AydinlatmaMekaniApp(
       initialThemePreference: startupTheme.preference,
       initialDarkMode: startupTheme.isDarkMode,
     ),
@@ -146,8 +145,8 @@ Future<void> _initializeOneSignal() async {
   }
 }
 
-class OnlineAvmApp extends StatelessWidget {
-  const OnlineAvmApp({
+class AydinlatmaMekaniApp extends StatelessWidget {
+  const AydinlatmaMekaniApp({
     super.key,
     required this.initialThemePreference,
     required this.initialDarkMode,
@@ -160,7 +159,7 @@ class OnlineAvmApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'onlineavm',
+      title: 'Aydınlatma Mekânı',
       theme: ThemeData(useMaterial3: false),
       darkTheme: ThemeData.dark(useMaterial3: false),
       themeMode: initialDarkMode ? ThemeMode.dark : ThemeMode.light,
@@ -225,43 +224,50 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
-  // Defer the cookie notice while the smart popup blocks outside clicks.
+  // Keep cookie controls above the popup and permit their original events.
   static const String _smartSearchPopupIOSCookieBridge = r'''
 (function () {
   'use strict';
   if (window.__AM_IOS_POPUP_COOKIE_GUARD__) return;
   window.__AM_IOS_POPUP_COOKIE_GUARD__ = true;
 
-  var marker = 'am-ios-smart-popup-active';
   var started = false;
-  var pending = false;
+  var releases = new WeakMap();
 
-  function visible(node) {
-    if (!node || node.hidden || node.getClientRects().length === 0) return false;
-    var css = window.getComputedStyle(node);
-    return css.display !== 'none' && css.visibility !== 'hidden' &&
-      css.visibility !== 'collapse';
-  }
-
-  function sync() {
-    pending = false;
-    var html = document.documentElement;
-    if (!html) return;
+  function allowCookieInteraction(event) {
+    var target = event.target;
+    if (!target || !target.closest || !target.closest('.cc-window')) return;
+    if (event.key === 'Escape' || event.keyCode === 27) return;
     var popup = document.getElementById('am-smart-search-popup');
-    var layer = popup && popup.closest('.fancybox-container, .modal');
-    var active = !!(layer &&
-      layer.getAttribute('data-am-smart-suspended') !== '1' &&
-      visible(layer) && visible(popup));
-    if (html.classList.contains(marker) !== active) {
-      html.classList.toggle(marker, active);
-    }
+    var idea = popup && popup.closest('#idea-popup');
+    var layer = idea && idea.closest('.fancybox-container');
+    if (!layer) return;
+    if (releases.has(layer) ||
+        layer.getAttribute('data-am-smart-suspended') === '1') return;
+
+    // The site's capture handler blocks events outside the smart popup.
+    // Release that gate for this cookie event only; keep its actual handler.
+    var previous = layer.getAttribute('data-am-smart-suspended');
+    releases.set(layer, previous);
+    layer.setAttribute('data-am-smart-suspended', '1');
+    window.setTimeout(function () {
+      releases.delete(layer);
+      if (layer.getAttribute('data-am-smart-suspended') !== '1') return;
+      if (previous === null) {
+        layer.removeAttribute('data-am-smart-suspended');
+      } else {
+        layer.setAttribute('data-am-smart-suspended', previous);
+      }
+    }, 0);
   }
 
-  function schedule() {
-    if (pending) return;
-    pending = true;
-    window.requestAnimationFrame(sync);
-  }
+  ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click',
+    'touchstart', 'touchend', 'keydown', 'keyup'].forEach(function (name) {
+    // Window capture runs before the site's document capture listeners.
+    window.addEventListener(name, allowCookieInteraction, {
+      capture: true, passive: true
+    });
+  });
 
   function start() {
     var html = document.documentElement;
@@ -269,22 +275,10 @@ class _WebViewScreenState extends State<WebViewScreen>
     started = true;
     var style = document.createElement('style');
     style.id = 'am-ios-smart-popup-cookie-guard';
-    style.textContent = 'html.' + marker + ' .cc-window{' +
-      'visibility:hidden!important;pointer-events:none!important;}';
+    style.textContent = '.cc-window{' +
+      'z-index:2147483647!important;pointer-events:auto!important;}';
     (document.head || html).appendChild(style);
-    var observer = new MutationObserver(schedule);
-    observer.observe(html, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ['class', 'style', 'hidden', 'aria-hidden',
-        'data-am-smart-suspended']
-    });
-    window.addEventListener('resize', schedule);
-    window.addEventListener('orientationchange', schedule);
-    sync();
   }
-
   start();
   document.addEventListener('DOMContentLoaded', start, { once: true });
 })();
@@ -350,18 +344,19 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   function update() {
-    var next = document.getElementById('am-smart-search-popup');
-    var layer = next && next.closest('.fancybox-container, .modal');
-    bind(layer ? next : null);
+    bind(document.getElementById('am-smart-search-popup'));
     if (!track || !popup) {
       if (track) { track.style.display = 'none'; }
       return;
     }
-    // Keep the indicator in the popup's stacking context. A page-level,
-    // maximum z-index would paint it over unrelated panels and notices.
-    var host = popup.closest('.fancybox-stage') || layer;
-    if (track.parentElement !== host) { host.appendChild(track); }
-
+    // The indicator lives at page level so Fancybox transforms/overflow
+    // cannot displace or clip it. Place it just above its popup, below KVKK.
+    var layerPriority = 0;
+    for (var node = popup; node; node = node.parentElement) {
+      var value = parseInt(getComputedStyle(node).zIndex, 10);
+      if (isFinite(value)) { layerPriority = Math.max(layerPriority, value); }
+    }
+    track.style.zIndex = String(Math.min(2147483646, layerPriority + 1));
     var style = getComputedStyle(popup);
     var box = popup.getBoundingClientRect();
     var maxScroll = popup.scrollHeight - popup.clientHeight;
@@ -385,6 +380,20 @@ class _WebViewScreenState extends State<WebViewScreen>
     // Overlay the existing scrolling element without resizing it or adding
     // another scroll container. Pointer events continue to reach the popup.
     var top = Math.max(0, box.top) + 8;
+    var close = popup.querySelector('.am-smart-search__close');
+    if (close) {
+      var closeBox = close.getBoundingClientRect();
+      if (closeBox.width > 0 && closeBox.right >= box.right - 8) {
+        top = Math.max(top, closeBox.bottom + 4);
+      }
+    }
+    var hit = document.elementFromPoint &&
+      document.elementFromPoint(box.right - 6, top + 1);
+    if (hit && !popup.contains(hit) &&
+        !(hit.closest && hit.closest('.cc-window'))) {
+      track.style.display = 'none';
+      return;
+    }
     var bottom = Math.min(window.innerHeight, box.bottom) - 8;
     var height = bottom - top;
     if (height <= 0) { track.style.display = 'none'; return; }
@@ -408,7 +417,7 @@ class _WebViewScreenState extends State<WebViewScreen>
     track.id = 'am-ios-popup-scrollbar';
     track.setAttribute('aria-hidden', 'true');
     track.style.cssText = 'position:fixed;display:none;width:5px;pointer-events:none;' +
-      'z-index:2;border-radius:3px;overflow:hidden;';
+      'z-index:1;border-radius:3px;overflow:hidden;';
     thumb = document.createElement('div');
     thumb.style.cssText = 'position:absolute;top:0;left:0;width:100%;' +
       'border-radius:3px;pointer-events:none;';
@@ -450,11 +459,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 
   var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
   if ((!isIOS && (window.SpeechRecognition || window.webkitSpeechRecognition)) ||
-      window.__ONLINEAVM_NATIVE_SPEECH__) {
+      window.__AYDINLATMA_NATIVE_SPEECH__) {
     return;
   }
 
-  window.__ONLINEAVM_NATIVE_SPEECH__ = true;
+  window.__AYDINLATMA_NATIVE_SPEECH__ = true;
 
   function NativeSpeechRecognition() {
     this.continuous = false;
@@ -1182,12 +1191,12 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__ONLINE_AVM_APP_PROTECTION__) {
+  if (window.__AYDINLATMA_MEKANI_APP_PROTECTION__) {
     return;
   }
 
-  window.__ONLINE_AVM_APP_PROTECTION__ = true;
-  window.__ONLINE_AVM_APP__ = true;
+  window.__AYDINLATMA_MEKANI_APP_PROTECTION__ = true;
+  window.__AYDINLATMA_MEKANI_APP__ = true;
 
   function setDismissCookie() {
     document.cookie =
@@ -1195,12 +1204,12 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 
   function installBlockingStyle() {
-    if (document.getElementById('onlineavm-app-block-style')) {
+    if (document.getElementById('aydinlatma-app-block-style')) {
       return;
     }
 
     var style = document.createElement('style');
-    style.id = 'onlineavm-app-block-style';
+    style.id = 'aydinlatma-app-block-style';
     style.textContent =
       '#mobarka,#mobiluygdiv{' +
       'display:none!important;' +
@@ -1336,8 +1345,8 @@ class _WebViewScreenState extends State<WebViewScreen>
       subtree: true
     });
 
-    window.__ONLINE_AVM_APP_OBSERVER__ = observer;
-    window.__ONLINEAVM_PREPARE_PAGE__ = preparePage;
+    window.__AYDINLATMA_MEKANI_APP_OBSERVER__ = observer;
+    window.__AYDINLATMA_PREPARE_PAGE__ = preparePage;
   }
 
   installObserver();
@@ -1348,13 +1357,13 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__ONLINEAVM_EMAIL_REMEMBER__) {
+  if (window.__AYDINLATMA_EMAIL_REMEMBER__) {
     return;
   }
 
-  window.__ONLINEAVM_EMAIL_REMEMBER__ = true;
+  window.__AYDINLATMA_EMAIL_REMEMBER__ = true;
 
-  var storageKey = 'onlineavm_remembered_email';
+  var storageKey = 'aydinlatma_remembered_email';
 
   function normalizeText(value) {
     return String(value || '')
@@ -1713,11 +1722,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__ONLINEAVM_GOOGLE_LOGIN_NOTICE__) {
+  if (window.__AYDINLATMA_GOOGLE_LOGIN_NOTICE__) {
     return;
   }
 
-  window.__ONLINEAVM_GOOGLE_LOGIN_NOTICE__ = true;
+  window.__AYDINLATMA_GOOGLE_LOGIN_NOTICE__ = true;
 
   function normalize(value) {
     return String(value || '')
@@ -1811,11 +1820,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__ONLINEAVM_WHATSAPP_SHARE_HANDLER__) {
+  if (window.__AYDINLATMA_WHATSAPP_SHARE_HANDLER__) {
     return;
   }
 
-  window.__ONLINEAVM_WHATSAPP_SHARE_HANDLER__ = true;
+  window.__AYDINLATMA_WHATSAPP_SHARE_HANDLER__ = true;
 
   function isWhatsAppShareUrl(value) {
     try {
@@ -1897,11 +1906,11 @@ class _WebViewScreenState extends State<WebViewScreen>
 (function () {
   'use strict';
 
-  if (window.__ONLINEAVM_EXTERNAL_LINK_HANDLER__) {
+  if (window.__AYDINLATMA_EXTERNAL_LINK_HANDLER__) {
     return;
   }
 
-  window.__ONLINEAVM_EXTERNAL_LINK_HANDLER__ = true;
+  window.__AYDINLATMA_EXTERNAL_LINK_HANDLER__ = true;
 
   function findAnchor(start) {
     var element = start;
@@ -2849,8 +2858,8 @@ class _WebViewScreenState extends State<WebViewScreen>
     await controller.evaluateJavascript(
       source: '''
         (function () {
-          if (typeof window.__ONLINEAVM_PREPARE_PAGE__ === 'function') {
-            return window.__ONLINEAVM_PREPARE_PAGE__();
+          if (typeof window.__AYDINLATMA_PREPARE_PAGE__ === 'function') {
+            return window.__AYDINLATMA_PREPARE_PAGE__();
           }
 
           return true;
@@ -2922,7 +2931,7 @@ class _WebViewScreenState extends State<WebViewScreen>
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
+            borderRadius: BorderRadius.circular(24),
           ),
           title: const Text(
             'Google ile Giriş',
@@ -3500,7 +3509,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                                       backgroundColor: loadingTrack,
                                       valueColor:
                                           const AlwaysStoppedAnimation<Color>(
-                                        siteLoadingGreen,
+                                        loadingOrange,
                                       ),
                                     ),
                                   ),
@@ -3539,7 +3548,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                               ),
                               decoration: BoxDecoration(
                                 color: const Color.fromRGBO(13, 13, 13, 1),
-                                borderRadius: BorderRadius.circular(100),
+                                borderRadius: BorderRadius.circular(999),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black.withValues(alpha: 0.28),
@@ -3585,7 +3594,7 @@ class _WebViewScreenState extends State<WebViewScreen>
                                     value: _splashProgress,
                                     backgroundColor: splashLoadingTrack,
                                     valueColor: const AlwaysStoppedAnimation<Color>(
-                                      splashLoadingOrange,
+                                      loadingOrange,
                                     ),
                                   ),
                                 ),
@@ -3664,8 +3673,8 @@ class AppConnectionErrorScreen extends StatelessWidget {
             ? 'assets/images/no_internet_dark.webp'
             : 'assets/images/no_internet_light.webp')
         : (isDarkMode
-            ? 'assets/images/server-error-dark.webp'
-            : 'assets/images/server-error-light.webp');
+            ? 'assets/images/server_error_dark.webp'
+            : 'assets/images/server_error_light.webp');
 
     final Color backgroundColor = isDarkMode ? appDarkBackground : Colors.white;
 
@@ -3712,7 +3721,7 @@ class AppConnectionErrorScreen extends StatelessWidget {
                           width: 2,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(999),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                       onPressed: retryInProgress
@@ -3758,7 +3767,7 @@ class ExitDialog extends StatelessWidget {
         ? appDarkTextPrimary
         : const Color.fromRGBO(100, 105, 118, 1);
     final Color ringColor =
-        isDarkMode ? appDarkBorder : const Color.fromRGBO(252, 237, 220, 1);
+        isDarkMode ? appDarkBorder : const Color.fromRGBO(221, 242, 252, 1);
     final Color dividerColor = isDarkMode
         ? const Color(0xFF2A3440)
         : const Color.fromRGBO(229, 231, 235, 1);
@@ -3840,12 +3849,12 @@ class ExitDialog extends StatelessWidget {
                   width: 92,
                   height: 7,
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(100),
+                    borderRadius: BorderRadius.circular(999),
                     gradient: const LinearGradient(
                       colors: [
-                        Color.fromRGBO(252, 237, 220, 1),
+                        Color.fromRGBO(126, 221, 241, 1),
                         appPrimary,
-                        Color.fromRGBO(217, 133, 39, 1),
+                        Color.fromRGBO(2, 139, 216, 1),
                       ],
                     ),
                   ),
@@ -3880,7 +3889,7 @@ class ExitDialog extends StatelessWidget {
                             elevation: isDarkMode ? 0 : 2,
                             shadowColor: Colors.black.withValues(alpha: 0.12),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                           onPressed: () => Navigator.of(context).pop(false),
@@ -3923,7 +3932,7 @@ class ExitDialog extends StatelessWidget {
                             foregroundColor: exitForeground,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(999),
+                              borderRadius: BorderRadius.circular(10),
                             ),
                           ),
                           onPressed: () => Navigator.of(context).pop(true),
