@@ -224,63 +224,80 @@ class _WebViewScreenState extends State<WebViewScreen>
 })();
 ''';
 
-  // Keep cookie controls above the popup and permit their original events.
+  // Limit the site's smart-popup guard to its own visible backdrop.
   static const String _smartSearchPopupIOSCookieBridge = r'''
 (function () {
   'use strict';
   if (window.__AM_IOS_POPUP_COOKIE_GUARD__) return;
   window.__AM_IOS_POPUP_COOKIE_GUARD__ = true;
 
-  var started = false;
-  var releases = new WeakMap();
+  // Scope the correction to the site's named smart-popup listeners. Do not
+  // change event cancellation, cookies, or the popup's suspension state.
+  var originalAdd = document.addEventListener;
+  var originalRemove = document.removeEventListener;
+  var wrappers = new WeakMap();
+  var outsideEvents = ['pointerdown', 'pointerup', 'mousedown', 'mouseup',
+    'click', 'touchstart', 'touchend'];
 
-  function allowCookieInteraction(event) {
-    var target = event.target;
-    if (!target || !target.closest || !target.closest('.cc-window')) return;
-    if (event.key === 'Escape' || event.keyCode === 27) return;
-    var popup = document.getElementById('am-smart-search-popup');
-    var idea = popup && popup.closest('#idea-popup');
-    var layer = idea && idea.closest('.fancybox-container');
-    if (!layer) return;
-    if (releases.has(layer) ||
-        layer.getAttribute('data-am-smart-suspended') === '1') return;
-
-    // The site's capture handler blocks events outside the smart popup.
-    // Release that gate for this cookie event only; keep its actual handler.
-    var previous = layer.getAttribute('data-am-smart-suspended');
-    releases.set(layer, previous);
-    layer.setAttribute('data-am-smart-suspended', '1');
-    window.setTimeout(function () {
-      releases.delete(layer);
-      if (layer.getAttribute('data-am-smart-suspended') !== '1') return;
-      if (previous === null) {
-        layer.removeAttribute('data-am-smart-suspended');
-      } else {
-        layer.setAttribute('data-am-smart-suspended', previous);
-      }
-    }, 0);
+  function visiblePopup(root, layer) {
+    if (!root || !layer || !root.isConnected || !layer.isConnected) return false;
+    var box = root.getBoundingClientRect();
+    if (box.width <= 0 || box.height <= 0 || box.bottom <= 0 ||
+        box.top >= window.innerHeight) return false;
+    for (var node = root; node; node = node.parentElement) {
+      var style = getComputedStyle(node);
+      if (node.hidden || style.display === 'none' ||
+          style.visibility === 'hidden' || style.visibility === 'collapse' ||
+          style.opacity === '0' ||
+          node.classList.contains('fancybox-is-closing')) return false;
+    }
+    return true;
   }
 
-  ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click',
-    'touchstart', 'touchend', 'keydown', 'keyup'].forEach(function (name) {
-    // Window capture runs before the site's document capture listeners.
-    window.addEventListener(name, allowCookieInteraction, {
-      capture: true, passive: true
-    });
-  });
+  document.addEventListener = function (type, listener, options) {
+    var outside = typeof listener === 'function' &&
+      listener.name === 'blockSmartPopupOutsideClose' &&
+      outsideEvents.indexOf(type) !== -1;
+    var escape = typeof listener === 'function' &&
+      listener.name === 'blockSmartPopupEscape' && type === 'keydown';
+    if (!outside && !escape) {
+      return originalAdd.call(this, type, listener, options);
+    }
+    var byType = wrappers.get(listener);
+    if (!byType) { byType = {}; wrappers.set(listener, byType); }
+    if (!byType[type]) {
+      byType[type] = function (event) {
+        var root = document.getElementById('am-smart-search-popup');
+        var idea = root && root.closest('#idea-popup');
+        var layer = idea && idea.closest('.fancybox-container');
+        if (!visiblePopup(root, layer)) return;
+        // Protect only the popup's own backdrop. Header/category navigation,
+        // shipping and cookie controls outside this container keep their events.
+        if (outside && !layer.contains(event.target)) return;
+        return listener.call(this, event);
+      };
+    }
+    return originalAdd.call(this, type, byType[type], options);
+  };
 
-  function start() {
+  document.removeEventListener = function (type, listener, options) {
+    var byType = typeof listener === 'function' && wrappers.get(listener);
+    return originalRemove.call(this, type,
+      byType && byType[type] ? byType[type] : listener, options);
+  };
+
+  function installStyle() {
     var html = document.documentElement;
-    if (started || !html) return;
-    started = true;
+    if (!html || document.getElementById('am-ios-smart-popup-cookie-guard')) return;
     var style = document.createElement('style');
     style.id = 'am-ios-smart-popup-cookie-guard';
-    style.textContent = '.cc-window{' +
-      'z-index:2147483647!important;pointer-events:auto!important;}';
+    // Preserve the cookie library's own visibility and pointer-event rules,
+    // including cc-invisible after the user's dismissal.
+    style.textContent = '.cc-window{z-index:2147483647!important;}';
     (document.head || html).appendChild(style);
   }
-  start();
-  document.addEventListener('DOMContentLoaded', start, { once: true });
+  installStyle();
+  document.addEventListener('DOMContentLoaded', installStyle, { once: true });
 })();
 ''';
 
