@@ -1,0 +1,49 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<document type="com.apple.InterfaceBuilder3.CocoaTouch.Storyboard.XIB" version="3.0" toolsVersion="12121" systemVersion="16G29" targetRuntime="iOS.CocoaTouch" propertyAccessControl="none" useAutolayout="YES" launchScreen="YES" colorMatched="YES" initialViewController="01J-lp-oVM" useSafeAreas="YES">
+    <dependencies>
+        <deployment identifier="iOS" />
+        <plugIn identifier="com.apple.InterfaceBuilder.IBCocoaTouchPlugin" version="12089" />
+        <capability name="Safe area layout guides" minToolsVersion="9.0" />
+    </dependencies>
+    <scenes>
+        <scene sceneID="EHf-IW-A2E">
+            <objects>
+                <viewController id="01J-lp-oVM" sceneMemberID="viewController">
+                    <layoutGuides>
+                        <viewControllerLayoutGuide type="top" id="Ydg-fD-yQy" />
+                        <viewControllerLayoutGuide type="bottom" id="xbc-2k-c8Z" />
+                    </layoutGuides>
+                    <view key="view" contentMode="scaleToFill" id="Ze5-6b-2t3">
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES" />
+                        <subviews>
+                            <imageView opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="scaleAspectFit" image="AydinlatmaLaunchLogo" translatesAutoresizingMaskIntoConstraints="NO" id="YRO-k0-Ey4" horizontalCompressionResistancePriority="250" verticalCompressionResistancePriority="250">
+                                <constraints>
+                                    <constraint firstAttribute="width" secondItem="YRO-k0-Ey4" secondAttribute="height" multiplier="644:215" id="logo-aspect-ratio" />
+                                </constraints>
+                            </imageView>
+                        </subviews>
+                        <viewLayoutGuide key="safeArea" id="ayd-safe-area" />
+                        <color key="backgroundColor" name="LaunchBackground" />
+                        <constraints>
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerX" secondItem="ayd-safe-area" secondAttribute="centerX" id="logo-center-x" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="centerY" secondItem="ayd-safe-area" secondAttribute="centerY" id="logo-center-y" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="width" constant="420" priority="999" id="logo-width" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="width" relation="lessThanOrEqual" secondItem="ayd-safe-area" secondAttribute="width" constant="-48" id="logo-max-width" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="height" relation="lessThanOrEqual" secondItem="ayd-safe-area" secondAttribute="height" constant="-48" id="logo-max-height" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="width" relation="lessThanOrEqual" constant="420" id="logo-width-cap" />
+                            <constraint firstItem="YRO-k0-Ey4" firstAttribute="height" relation="lessThanOrEqual" constant="168" id="logo-height-cap" />
+                        </constraints>
+                    </view>
+                </viewController>
+                <placeholder placeholderIdentifier="IBFirstResponder" id="iYj-Kq-Ea1" userLabel="First Responder" sceneMemberID="firstResponder" />
+            </objects>
+            <point key="canvasLocation" x="53" y="375" />
+        </scene>
+    </scenes>
+    <resources>
+        <image name="AydinlatmaLaunchLogo" width="644" height="215" />
+        <namedColor name="LaunchBackground">
+            <color red="1" green="1" blue="1" alpha="1" colorSpace="custom" customColorSpace="sRGB" />
+        </namedColor>
+    </resources>
+</document>
