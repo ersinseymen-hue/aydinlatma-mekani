@@ -3765,8 +3765,7 @@ class _WebViewScreenState extends State<WebViewScreen>
   }
 }
 
-// Cropped assets are sized independently of the screen's height. Short
-// viewports can scroll instead of shrinking a complete portrait composition.
+// Same 644:215 visible-logo geometry as AydinlatmaLaunchScreen and AppDelegate.
 class _CroppedSplashLogo extends StatelessWidget {
   const _CroppedSplashLogo({required this.assetPath});
 
@@ -3777,17 +3776,21 @@ class _CroppedSplashLogo extends StatelessWidget {
     return SafeArea(
       child: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
-          final double width = (constraints.maxWidth - 48)
+          const double aspectRatio = 644.0 / 215.0;
+          final double maxWidth = (constraints.maxWidth - 48)
               .clamp(0.0, 420.0)
               .toDouble();
-          final double height = (constraints.maxHeight - 48)
+          final double maxHeight = (constraints.maxHeight - 48)
               .clamp(0.0, 168.0)
               .toDouble();
+          final double width = maxWidth < maxHeight * aspectRatio
+              ? maxWidth
+              : maxHeight * aspectRatio;
           return Center(
             child: Image.asset(
               assetPath,
               width: width,
-              height: height,
+              height: width / aspectRatio,
               fit: BoxFit.contain,
               filterQuality: FilterQuality.high,
               semanticLabel: 'Uygulama logosu',
